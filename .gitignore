@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local agent state
+.agents/
+.codex/
+
+# Credentials and local runtime data
+.env
+.env.*
+!.env.example
+settings.json
+cookies.txt
+cookies*.txt
+*.log
+*.part

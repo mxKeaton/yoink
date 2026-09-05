@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "denis.yoinker",
+  "name": "Yoinker",
+  "version": "0.3.0",
+  "author": "Denis",
+  "description": "YouTube downloads and Spotify music matching with streamrip",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Yoinker",
+    "description": "Download YouTube media and match Spotify songs or playlists",
+    "category": "Media",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}
