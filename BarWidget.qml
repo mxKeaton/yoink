@@ -1,5 +1,5 @@
 import QtQuick
-import Quickshell.Io
+import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -10,6 +10,9 @@ Panel {
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
 
+  readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoinker") : null
+  readonly property bool workerRunning: downloadService ? downloadService.running : false
+
   property bool configuring: false
   property bool searching: false
   property var searchResults: []
@@ -19,7 +22,6 @@ Panel {
   property string musicSource: "qobuz"
   property string musicCodec: "original"
   property int musicQuality: 3
-  property bool fallback: false
   readonly property bool spotifyLink: link.text.indexOf("open.spotify.com") !== -1 || link.text.indexOf("spotify:") === 0
   property string mode: "Video"
   property string videoFormat: "auto"
@@ -42,12 +44,20 @@ Panel {
       try { root.searchResults = JSON.parse(line.slice(7)) } catch (e) { root.status = "Could not read search results." }
       return
     }
+    if (line.indexOf("OPEN:") === 0) {
+      const url = line.slice(5)
+      if (url.indexOf("https://accounts.spotify.com/") === 0) {
+        Quickshell.execDetached(["omarchy-launch-browser", url])
+        root.status = "Finish connecting Spotify in your browser."
+      }
+      return
+    }
     logText = (logText + line + "\n").slice(-16000)
     if (line.indexOf("[download]") === 0) status = line
   }
 
   function clearDownload() {
-    if (worker.running) return
+    if (root.workerRunning) return
     link.text = ""
     query.text = ""
     searchResults = []
@@ -56,12 +66,13 @@ Panel {
     status = "Paste a link or search for a song to get started."
     cancelling = false
     configuring = false
+    if (root.downloadService) root.downloadService.clearResult()
     scroll.contentY = 0
     if (searching) query.forceActiveFocus(); else link.forceActiveFocus()
   }
 
   function start(action) {
-    if (worker.running) return
+    if (root.workerRunning) return
     root.action = action
     root.cancelling = false
     root.logText = ""
@@ -70,41 +81,46 @@ Panel {
       format: mode === "Video" ? videoFormat : audioFormat,
       quality: mode === "Video" ? videoQuality : audioQuality,
       output: destination.text, metadata: metadata, subtitles: mode === "Video" && subtitles,
-      selection: searching ? selectedSong : null, source: musicSource, musicCodec: musicCodec, musicQuality: musicQuality, fallback: fallback}
+      selection: searching ? selectedSong : null, source: musicSource, musicCodec: musicCodec, musicQuality: musicQuality}
     runTask(action, options)
   }
 
   function runTask(action, options) {
-    if (worker.running) return
+    if (root.workerRunning || !root.downloadService) return
     root.action = action
     root.cancelling = false
     if (action !== "config-load") root.logText = ""
     root.status = action === "config-load" ? root.status : "Working…"
-    const script = decodeURIComponent(Qt.resolvedUrl("backend.py").toString().replace(/^file:\/\//, ""))
-    worker.payload = JSON.stringify(Object.assign({}, options, {action: action}))
-    worker.command = ["/usr/bin/python", "-B", "-u", script]
-    worker.running = true
+    root.downloadService.runTask(action, options)
   }
 
-  Component.onCompleted: runTask("config-load", {})
-
-  Process {
-    id: worker
-    property string payload: ""
-    stdinEnabled: true
-    onStarted: { write(payload + "\n"); payload = "" }
-    stdout: SplitParser { onRead: line => root.appendLog(line) }
-    stderr: SplitParser { onRead: line => root.appendLog(line) }
-    onExited: function(code) {
-      if (root.action === "config-load" && code === 0) return
-      root.status = root.cancelling ? "Cancelled."
+  function workerExited(code, completedAction, wasCancelled) {
+      root.cancelling = false
+      if (completedAction === "config-load" && code === 0) return
+      root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? "Failed — see details below."
-        : root.action === "formats" ? "Available formats listed below."
-        : root.action === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
-        : root.action === "match" ? "Matching complete. See details below."
-        : root.action === "download" ? "Download complete." : "Configuration updated."
+        : completedAction === "formats" ? "Available formats listed below."
+        : completedAction === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
+        : completedAction === "download" ? "Download complete." : "Configuration updated."
+  }
+
+  Connections {
+    target: root.downloadService
+    function onOutputLine(line) { root.appendLog(line) }
+    function onFinished(code, completedAction, wasCancelled) { root.workerExited(code, completedAction, wasCancelled) }
+    function onConfigDataChanged() {
+      if (root.downloadService && root.downloadService.configData) configForm.apply(root.downloadService.configData)
     }
+    function onSearchResultsChanged() {
+      if (root.downloadService) root.searchResults = root.downloadService.searchResults
+    }
+  }
+
+  onDownloadServiceChanged: {
+    if (!root.downloadService) return
+    if (root.downloadService.configData) configForm.apply(root.downloadService.configData)
+    root.searchResults = root.downloadService.searchResults
   }
 
   BarIconButton {
@@ -114,8 +130,38 @@ Panel {
     text: "\uf019"
     slotSize: Style.bar.statusSlot
     fontSize: Style.font.caption
-    tooltipText: worker.running ? root.status : "Yoinker"
+    foreground: root.downloadService && root.downloadService.resultState === "success" ? Color.accent
+      : root.downloadService && root.downloadService.resultState === "failed" ? Color.urgent
+      : root.bar ? root.bar.barForeground : Color.foreground
+    tooltipText: root.workerRunning ? root.status : "Yoinker"
     onPressed: root.toggle()
+  }
+
+  Rectangle {
+    id: progressBadge
+    z: 3
+    visible: root.downloadService && root.downloadService.progressTotal > 0
+    anchors.right: parent.right
+    anchors.top: parent.top
+    width: Math.max(height, badgeText.implicitWidth + Style.space(4))
+    height: Math.max(10, Style.font.bodySmall + Style.space(2))
+    radius: height / 2
+    color: root.downloadService && root.downloadService.resultState === "failed" ? Color.urgent
+      : root.downloadService && root.downloadService.resultState === "success" ? Color.accent
+      : Color.bar.background
+    border.width: 1
+    border.color: root.bar ? root.bar.barForeground : Color.foreground
+    Text {
+      id: badgeText
+      anchors.centerIn: parent
+      text: root.downloadService ? root.downloadService.progressDone + "/" + root.downloadService.progressTotal : ""
+      color: root.downloadService && root.downloadService.resultState === "failed" ? Color.background
+        : root.downloadService && root.downloadService.resultState === "success" ? Color.background
+        : root.bar ? root.bar.barForeground : Color.foreground
+      font.family: Style.font.family
+      font.pixelSize: Math.max(7, Style.font.bodySmall * 0.72)
+      font.bold: true
+    }
   }
 
   component Label: Text {
@@ -129,7 +175,7 @@ Panel {
   component Choice: Button {
     focusable: true
     bordered: true
-    enabled: !worker.running
+    enabled: !root.workerRunning
   }
 
   KeyboardPanel {
@@ -166,7 +212,7 @@ Panel {
               id: clearButton
               text: "Clear"
               tooltipText: "Clear the link and progress log"
-              enabled: !worker.running
+              enabled: !root.workerRunning
               focusable: true
               onClicked: root.clearDownload()
             }
@@ -181,7 +227,7 @@ Panel {
             id: configForm
             width: parent.width
             visible: root.configuring
-            busy: worker.running
+            busy: root.workerRunning
             onRequested: (action, payload) => root.runTask(action, payload)
           }
           Column {
@@ -209,14 +255,14 @@ Panel {
               id: query
               width: parent.width
               placeholderText: "Song title or artist and title…"
-              enabled: !worker.running
+              enabled: !root.workerRunning
               selectByMouse: true
               onTextEdited: { root.selectedSong = null; root.searchResults = [] }
-              onAccepted: if (!worker.running && text.trim()) root.runTask("search", {query: text})
+              onAccepted: if (!root.workerRunning && text.trim()) root.runTask("search", {query: text})
             }
             Choice {
               text: "Search"
-              enabled: !worker.running && query.text.trim() !== ""
+              enabled: !root.workerRunning && query.text.trim() !== ""
               onClicked: { root.selectedSong = null; root.searchResults = []; root.runTask("search", {query: query.text}) }
             }
             Flickable {
@@ -245,7 +291,7 @@ Panel {
                       text: modelData.title + "\n" + modelData.artists.join(", ") + " · " + modelData.durationLabel + (modelData.album ? "\n" + modelData.album : "")
                     }
                     selected: root.selectedSong !== null && root.selectedSong.videoId === modelData.videoId
-                    enabled: !worker.running
+                    enabled: !root.workerRunning
                     leftAlign: true
                     focusable: true
                     bordered: true
@@ -265,7 +311,7 @@ Panel {
             visible: !root.searching
             width: parent.width
             placeholderText: "Paste a YouTube or Spotify link…"
-            enabled: !worker.running
+            enabled: !root.workerRunning
             selectByMouse: true
           }
           Flow {
@@ -312,20 +358,24 @@ Panel {
             visible: root.musicInput
             width: parent.width
             spacing: Style.space(10)
-            Label { text: "Download music from" }
+            Label { text: "Preferred source" }
             Flow {
               width: parent.width; spacing: Style.space(6)
               Repeater {
-                model: ["qobuz", "deezer", "tidal", "youtube"]
+                model: ["qobuz", "deezer", "tidal"]
                 Choice {
                   required property string modelData
-                  text: modelData === "youtube" ? "YouTube Music" : modelData.charAt(0).toUpperCase() + modelData.slice(1)
+                  text: modelData.charAt(0).toUpperCase() + modelData.slice(1)
                   selected: root.musicSource === modelData
                   onClicked: root.musicSource = modelData
                 }
               }
             }
-            Choice { text: "Try other configured sources if needed"; selected: root.fallback; onClicked: root.fallback = !root.fallback }
+            Label {
+              width: parent.width
+              text: "Yoinker tries this service first, then your other configured services. YouTube Music is always the last resort."
+              font.pixelSize: Style.font.bodySmall
+            }
             Label { text: "Quality · limited by source and account" }
             Flow {
               width: parent.width; spacing: Style.space(6)
@@ -348,24 +398,24 @@ Panel {
             id: destination
             width: parent.width
             placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoinker/Music" : "~/Downloads/Yoinker/" + root.mode
-            enabled: !worker.running
+            enabled: !root.workerRunning
             selectByMouse: true
           }
           Flow {
             width: parent.width; spacing: Style.space(6)
-            Choice { text: root.searching || root.musicInput ? "Download music" : "Download " + root.mode.toLowerCase(); enabled: !worker.running && root.inputReady; onClicked: root.start("download") }
-            Choice { text: root.musicInput ? "Match tracks" : "Available formats"; enabled: !worker.running && root.inputReady; onClicked: root.start(root.musicInput ? "match" : "formats") }
+            Choice { text: root.searching || root.musicInput ? "Download music" : "Download " + root.mode.toLowerCase(); enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
+            Choice { visible: !root.musicInput; text: "Available formats"; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("formats") }
           }
           }
           Button {
-            visible: worker.running
-            text: root.cancelling ? "Stopping…" : "Cancel"
+            visible: root.workerRunning
+            text: root.downloadService && root.downloadService.cancelling ? "Stopping…" : "Cancel"
             focusable: true
-            enabled: !root.cancelling
-            onClicked: { root.cancelling = true; worker.signal(2) }
+            enabled: root.downloadService && !root.downloadService.cancelling
+            onClicked: if (root.downloadService) root.downloadService.cancel()
           }
           Label { width: parent.width; text: root.status }
-          Label { visible: worker.running; width: parent.width; text: "You can close this popup while the download continues."; font.pixelSize: Style.font.bodySmall }
+          Label { visible: root.workerRunning; width: parent.width; text: "You can close this popup while the download continues."; font.pixelSize: Style.font.bodySmall }
           Flickable {
             visible: root.logText !== ""
             width: parent.width

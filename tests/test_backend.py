@@ -6,9 +6,20 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
+
+import backend
 
 
 class BackendStartupTests(unittest.TestCase):
+    def test_connect_saves_pending_fields_first(self):
+        with patch.object(backend.settings, 'save_form') as save, \
+             patch.object(backend, 'snapshot'), patch('spotify.connect') as connect:
+            self.assertEqual(backend.main({'action': 'spotify-connect',
+                                           'values': {'spotify_client_id': 'new-client'}}), 0)
+            save.assert_called_once_with({'spotify_client_id': 'new-client'})
+            connect.assert_called_once_with()
+
     def test_runtime_never_writes_into_watched_plugin_directory(self):
         project = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary:

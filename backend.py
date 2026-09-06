@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import signal
 import sys
 
 # Omarchy watches every file under the plugin directory, including __pycache__.
@@ -11,6 +12,13 @@ import sys
 sys.dont_write_bytecode = True
 
 import settings
+
+
+def terminate(*_):
+    raise KeyboardInterrupt
+
+
+signal.signal(signal.SIGTERM, terminate)
 
 
 def snapshot():
@@ -54,10 +62,12 @@ def main(options):
         snapshot()
         print('Platform configuration cleared.', flush=True)
     elif action == 'spotify-connect':
+        settings.save_form(options.get('values', {}))
         import spotify
         spotify.connect()
         snapshot()
     elif action == 'tidal-connect':
+        settings.save_form(options.get('values', {}))
         asyncio.run(connect_tidal())
         snapshot()
     elif action == 'search':
@@ -65,7 +75,7 @@ def main(options):
         results = lookup.search(options.get('query', ''))
         print('SEARCH:' + json.dumps(results), flush=True)
         print(f'{len(results)} songs found.' if results else 'No songs found. Try adding the artist name.', flush=True)
-    elif action in ('download', 'match', 'formats'):
+    elif action in ('download', 'formats'):
         url = options.get('url', '').strip()
         if options.get('selection') or url.startswith('spotify:') or 'open.spotify.com' in url:
             import music

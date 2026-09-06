@@ -13,6 +13,7 @@ import settings
 import spotify
 
 SOURCES = ('qobuz', 'deezer', 'tidal', 'youtube')
+PAID_SOURCES = ('qobuz', 'deezer', 'tidal')
 
 
 def normalize(text):
@@ -33,36 +34,18 @@ def candidate(item, source):
     }
 
 
-def match_score(track, item):
-    isrc = track.get('external_ids', {}).get('isrc')
-    if isrc and item.get('isrc'):
-        return 1.0 if isrc.upper() == item['isrc'].upper() else 0.0
-    title = normalize(track['name'])
-    other = normalize(item['title'])
-    # Avoid substituting covers, live versions, remixes, or instrumental tracks.
-    versions = {'live', 'remix', 'instrumental', 'karaoke', 'cover', 'acoustic', 'sped', 'slowed'}
-    if set(title.split()) & versions != set(other.split()) & versions:
-        return 0.0
-    title_score = SequenceMatcher(None, title, other).ratio()
-    artist_score = max((SequenceMatcher(None, normalize(a['name']), normalize(b)).ratio()
-                        for a in track.get('artists', []) for b in item['artists']), default=0)
-    if title_score < .83 or artist_score < .85:
-        return 0.0
-    duration = float(item.get('duration') or 0)
-    wanted = float(track.get('duration_ms') or 0) / 1000
-    if wanted and duration and abs(wanted - duration) > max(5, wanted * .025):
-        return 0.0
-    return min(.99, .65 * title_score + .35 * artist_score)
+def first_result(items):
+    """Catalog APIs already rank their search results; use the first usable one."""
+    return next((item for item in items
+                 if re.fullmatch(r'[A-Za-z0-9_-]+', item.get('id', ''))
+                 and item.get('title')), None)
 
 
-def best_match(track, items):
-    ranked = sorted(((match_score(track, item), item) for item in items if re.fullmatch(r'[A-Za-z0-9_-]+', item['id'])), key=lambda p: p[0], reverse=True)
-    if not ranked or ranked[0][0] < .9:
-        return None
-    # Tied metadata for different recordings is ambiguous unless ISRC is exact.
-    if len(ranked) > 1 and ranked[0][0] < 1 and ranked[0][0] - ranked[1][0] < .02:
-        return None
-    return ranked[0][1]
+def source_order(preferred, data):
+    """Try the preferred lossless service first and YouTube Music last."""
+    paid = ([preferred] if preferred in PAID_SOURCES else [])
+    paid += [source for source in PAID_SOURCES if source != preferred]
+    return [source for source in paid if configured(source, data)] + ['youtube']
 
 
 def configured(source, data):
@@ -230,17 +213,16 @@ async def run(options):
         print('Reading Spotify metadata…', flush=True)
         name, tracks = spotify.tracks_from_link(options['url'].strip())
     data = settings.load()
-    order = [source] + ([s for s in SOURCES if s != source and configured(s, data)] if options.get('fallback') else [])
-    if not any(configured(s, data) for s in order):
-        raise ValueError('Configure the selected source or enable fallback in Yoinker first.')
+    order = source_order(source, data)
     output = Path(options.get('output', '').strip() or str(Path.home() / 'Downloads' / 'Yoinker' / 'Music')).expanduser().absolute() / safe_folder(name)
     output.mkdir(parents=True, exist_ok=True)
     config = make_config(data, output, quality, codec)
     catalogs = Catalogs(config, data)
     report = []
     reports = report_directory(output)
-    preview = options.get('action') == 'match'
+    print('PROGRESS:' + json.dumps({'done': 0, 'total': len(tracks)}), flush=True)
     try:
+        print(f'Downloading {len(tracks)} track(s)…', flush=True)
         for number, track in enumerate(tracks, 1):
             label = ', '.join(a['name'] for a in track.get('artists', [])) + ' — ' + track['name']
             print(f'[{number}/{len(tracks)}] {label}', flush=True)
@@ -254,14 +236,18 @@ async def run(options):
                                  'artists': [a['name'] for a in track['artists']], 'duration': track['duration_ms'] / 1000}
                     else:
                         matches = await catalogs.search(provider, track)
-                        match = best_match(track, matches)
+                        match = first_result(matches)
                     if not match:
-                        print(f'  {provider}: no confident match.', flush=True)
+                        print(f'  {provider}: no result.', flush=True)
                         continue
-                    print(f'  Matched {provider}: {match["title"]}', flush=True)
-                    if not preview:
+                    print(f'  Using first {provider} result: {match["title"]}', flush=True)
+                    try:
                         await catalogs.download(match, output, codec)
-                    row.update(status='matched' if preview else 'downloaded', match=match)
+                        row.update(status='downloaded', match=match)
+                    except Exception as error:
+                        print(f'  {provider}: {type(error).__name__}; trying the next source.', flush=True)
+                        row['status'] = 'failed'
+                        continue
                     break
                 except (ImportError, ModuleNotFoundError):
                     print(f'  {provider}: missing dependency; install streamrip and python-ytmusicapi.', flush=True)
@@ -273,7 +259,8 @@ async def run(options):
                         catalogs.unavailable.add(provider)
                     row['status'] = 'failed'
             report.append(row)
-            (reports / ('matches.json' if preview else 'downloads.json')).write_text(json.dumps(report, indent=2))
+            (reports / 'downloads.json').write_text(json.dumps(report, indent=2))
+            print('PROGRESS:' + json.dumps({'done': number, 'total': len(tracks)}), flush=True)
     finally:
         try:
             await catalogs.close()
@@ -282,6 +269,6 @@ async def run(options):
             # own cleanup for artwork directories created by this process.
             from streamrip.media import remove_artwork_tempdirs
             remove_artwork_tempdirs()
-    count = sum(r['status'] in ('matched', 'downloaded') for r in report)
-    print(f'{count}/{len(tracks)} tracks {"matched" if preview else "completed"}. Report: {reports}', flush=True)
+    count = sum(r['status'] == 'downloaded' for r in report)
+    print(f'{count}/{len(tracks)} tracks completed. Report: {reports}', flush=True)
     return 0 if count == len(tracks) else 2

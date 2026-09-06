@@ -6,9 +6,12 @@
   "author": "Denis",
   "description": "YouTube downloads and Spotify music matching with streamrip",
   "kinds": [
+    "service",
     "bar-widget"
   ],
+  "keepLoaded": true,
   "entryPoints": {
+    "service": "Service.qml",
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {

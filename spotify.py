@@ -13,7 +13,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import webbrowser
 
 
 import settings
@@ -69,11 +68,13 @@ def pkce_login(client_id: str) -> dict:
         "state": state,
     })
     auth_url = "https://accounts.spotify.com/authorize?" + params
-    server = http.server.HTTPServer(("127.0.0.1", 8765), Callback)
+    class CallbackServer(http.server.HTTPServer):
+        allow_reuse_address = True
+
+    server = CallbackServer(("127.0.0.1", 8765), Callback)
     server.timeout = 1
-    print("Opening Spotify authorization in your browser...")
-    if not webbrowser.open(auth_url):
-        print(auth_url)
+    print("Opening Spotify authorization in your browser…", flush=True)
+    print("OPEN:" + auth_url, flush=True)
     deadline = time.monotonic() + 300
     try:
         while not result and time.monotonic() < deadline:

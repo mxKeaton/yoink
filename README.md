@@ -6,11 +6,12 @@ floating popup.
 ## Features
 
 - Download YouTube videos or extract their audio with yt-dlp
-- Download Spotify tracks, playlists, albums, and artist releases by matching
-  them on Qobuz, Deezer, Tidal, or YouTube Music
+- Download Spotify tracks, playlists, albums, and artist releases from Qobuz,
+  Deezer, Tidal, or YouTube Music
 - Search for songs by title through YouTube Music
 - Choose the quality, output format, destination, metadata, and subtitles
-- Preview matched tracks before downloading
+- Prefer Qobuz, Deezer, or Tidal, with YouTube Music as the final fallback
+- Keep downloads running when the popup closes and show progress on the bar icon
 
 ## Installation
 
@@ -32,7 +33,8 @@ omarchy restart shell
 
 Open Yoinker and select **Configuration** to connect the services you use:
 
-- **Spotify:** enter your Spotify app client ID and connect through the browser.
+- **Spotify:** [create a Spotify app](https://developer.spotify.com/dashboard/create),
+  enter its client ID, and connect through the browser.
   Set `http://127.0.0.1:8765/callback` as the app's redirect URI.
 - **Qobuz:** use either username/password or User ID, user auth token, App ID,
   and App Secret.
@@ -45,9 +47,10 @@ file permissions.
 
 ## Usage
 
-Paste a supported link or select **Search titles**. Choose the download source,
-quality, and format, then press **Download**. Progress and errors are shown in
-the popup.
+Paste a supported link or select **Search titles**. Choose the preferred source,
+quality, and format, then press **Download**. Yoinker tries other configured
+sources when needed and uses YouTube Music last. Yoinker automatically uses the
+first result returned by each source.
 
 Downloads are saved under `~/Downloads/Yoinker` by default. Temporary artwork
 is removed after covers are embedded into the audio files.

@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -61,6 +62,14 @@ Column {
       : root.platform === "tidal" ? "Connect in your browser, or enter an existing Tidal session below."
       : "YouTube Music search works without login. A cookies file is optional for downloads."
   }
+  Button {
+    visible: root.platform === "spotify"
+    text: "Create Spotify app ↗"
+    enabled: !root.busy
+    focusable: true
+    bordered: true
+    onClicked: Quickshell.execDetached(["omarchy-launch-browser", "https://developer.spotify.com/dashboard/create"])
+  }
   Flow {
     visible: root.platform === "qobuz"
     width: parent.width
@@ -115,7 +124,7 @@ Column {
       enabled: !root.busy
       focusable: true
       bordered: true
-      onClicked: root.requested(root.platform + "-connect", {})
+      onClicked: root.requested(root.platform + "-connect", {values: root.edits})
     }
     Button {
       text: "Forget this platform"

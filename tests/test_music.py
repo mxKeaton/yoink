@@ -83,17 +83,14 @@ class MatchingTests(unittest.TestCase):
     def item(self, **changes):
         return {'id': '1', 'title': 'A Song', 'artists': ['An Artist'], 'duration': 180, 'isrc': '', 'source': 'qobuz'} | changes
 
-    def test_exact_recording_id_preferred(self):
-        exact = self.item(id='2', isrc='US1234567890')
-        self.assertEqual(music.best_match(TRACK, [self.item(), exact]), exact)
+    def test_first_result_skips_invalid_entries(self):
+        self.assertEqual(music.first_result([{'id': 'bad id', 'title': 'Ignored'}, self.item(id='2')]), self.item(id='2'))
+        self.assertIsNone(music.first_result([self.item(id='bad id')]))
 
-    def test_wrong_recordings_rejected(self):
-        for item in [self.item(title='A Song Live'), self.item(artists=['Other Band']), self.item(duration=250), self.item(isrc='OTHER')]:
-            self.assertIsNone(music.best_match(TRACK, [item]))
-
-    def test_ambiguous_matches_skipped(self):
-        self.assertIsNone(music.best_match(TRACK, [self.item(), self.item(id='2')]))
-        self.assertIsNotNone(music.best_match(TRACK, [self.item()]))
+    def test_preferred_source_first_and_youtube_last(self):
+        data = {'qobuz_email': 'x', 'qobuz_password': 'x', 'deezer_arl': 'x'}
+        self.assertEqual(music.source_order('deezer', data), ['deezer', 'qobuz', 'youtube'])
+        self.assertEqual(music.source_order('tidal', {}), ['youtube'])
 
     def test_normalize_sources(self):
         for source, item in [('qobuz', {'id': 1, 'performer': {'name': 'An Artist'}}), ('deezer', {'id': 1, 'artist': {'name': 'An Artist'}}), ('tidal', {'id': 1, 'artists': [{'name': 'An Artist'}]}), ('youtube', {'videoId': '1', 'artists': [{'name': 'An Artist'}], 'duration_seconds': 180})]:
@@ -142,10 +139,6 @@ class WorkflowTests(unittest.TestCase):
             with patch.object(spotify, 'tracks_from_link', return_value=('Missing', [TRACK])), patch.object(settings, 'load', return_value={}), patch.object(music.Catalogs, 'search', new=AsyncMock(return_value=[])), patch.object(music.Catalogs, 'close', new=AsyncMock()), contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(asyncio.run(music.run({'url': 'test', 'output': tmp, 'source': 'youtube'})), 2)
 
-    def test_preview_does_not_download(self):
-        with tempfile.TemporaryDirectory() as tmp, patch.object(spotify, 'tracks_from_link', return_value=('Preview', [TRACK])), patch.object(settings, 'load', return_value={}), patch.object(music.Catalogs, 'search', new=AsyncMock(return_value=[{'id': '1', 'title': 'A Song', 'artists': ['An Artist'], 'duration': 180, 'isrc': '', 'source': 'youtube'}])), patch.object(music.Catalogs, 'download', new=AsyncMock()) as download, patch.object(music.Catalogs, 'close', new=AsyncMock()), contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(asyncio.run(music.run({'url': 'test', 'output': tmp, 'source': 'youtube', 'action': 'match'})), 0)
-            download.assert_not_awaited()
 
 
 if __name__ == '__main__':
