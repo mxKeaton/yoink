@@ -9,12 +9,64 @@ import html
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, quote_plus
 from urllib.request import Request, urlopen
 
 import settings
 
 PAGE_SIZE = 18
+
+def source_urls():
+    saved = settings.load()
+
+    def read_list(value):
+        try:
+            value = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, ValueError):
+            value = []
+        return value if isinstance(value, list) else []
+
+    # game_always_checked_urls is intentionally consumed only here. It can be
+    # maintained directly in settings.json while remaining absent from the
+    # Games configuration controls.
+    predefined = [str(value).strip() for value in read_list(saved.get('game_always_checked_urls', []))]
+    configured = [str(value).strip() for value in read_list(saved.get('game_source_urls', []))]
+    combined = []
+    for value in predefined + configured:
+        value = value.rstrip('/')
+        if value.startswith(('http://', 'https://')) and value not in combined:
+            combined.append(value)
+    return combined
+
+def source_matches(name):
+    """Return configured sites whose simple title slug responds successfully."""
+    slug = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')
+    if not slug:
+        return []
+    def check(base):
+        candidates = (urljoin(base + '/', slug), urljoin(base + '/', quote_plus(str(name).lower())))
+        match_url = candidates[0]
+        valid = False
+        for url in candidates:
+            try:
+                request = Request(url, headers={'User-Agent': 'Yoinker/0.4'})
+                with urlopen(request, timeout=4) as response:
+                    final_url = response.geturl() or url
+                    body = response.read(65536).decode('utf-8', 'ignore').lower()
+                    error_url = any(token in final_url.lower() for token in ('/error', '/404', 'not-found', 'page-not-found'))
+                    error_body = any(token in body for token in ('page not found', '404 not found', 'error occurred', 'does not exist'))
+                    if 200 <= response.status < 400 and not error_url and not error_body:
+                        match_url, valid = final_url, True
+                        break
+            except Exception:
+                continue
+        return {'base': base, 'url': match_url, 'valid': valid}
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(check, source_urls()))
+    # Do not expose guessed error routes as clickable source buttons.  A
+    # number of game sites return a branded 404 page with HTTP 200, so the
+    # per-page checks above are required before a route is considered usable.
+    return [result for result in results if result['valid']]
 
 
 def _json(url, data=None, headers=None):

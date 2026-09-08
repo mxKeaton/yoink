@@ -53,7 +53,7 @@ def main(options):
         print('Configuration saved.', flush=True)
     elif action == 'config-forget':
         platform = options.get('platform')
-        if platform not in ('spotify', 'qobuz', 'deezer', 'tidal', 'youtube'):
+        if platform not in ('spotify', 'qobuz', 'deezer', 'tidal', 'youtube', 'games'):
             raise ValueError('Unknown platform.')
         clear = {key: '' for key in settings.FIELDS if key.startswith(platform + '_')}
         if platform == 'spotify':
@@ -88,6 +88,10 @@ def main(options):
         else:
             result = games.detail(options.get('id'), options.get('source', 'steam'))
             print('GAME_DETAIL:' + json.dumps(result), flush=True)
+        return 0
+    elif action == 'game-sources':
+        import games
+        print('GAME_SOURCES:' + json.dumps(games.source_matches(options.get('name', ''))), flush=True)
         return 0
     elif action in ('download', 'formats'):
         url = options.get('url', '').strip()

@@ -19,6 +19,9 @@ Panel {
   property var selectedGame: null
   property string gameStatus: "Browse trending games or search the catalogue."
   property string gameDebug: ""
+  property var gameSources: []
+  property bool gameSourcesLoading: false
+  Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
   property int gamePage: 1
   property bool gameBrowsingTrending: true
   property bool searching: false
@@ -42,6 +45,10 @@ Panel {
   property bool cancelling: false
   property string action: "download"
 
+  function sourceLabel(url) {
+    return String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
+  }
+
   function appendLog(line) {
     if (line.indexOf("CONFIG:") === 0) {
       try { configForm.apply(JSON.parse(line.slice(7))) } catch (e) {}
@@ -57,6 +64,10 @@ Panel {
     }
     if (line.indexOf("GAME_DETAIL:") === 0) {
       try { root.selectedGame = JSON.parse(line.slice(12)); root.gameStatus = "Game details loaded." } catch (e) { root.gameStatus = "Could not read game details." }
+      return
+    }
+    if (line.indexOf("GAME_SOURCES:") === 0) {
+      try { root.gameSources = JSON.parse(line.slice(13)); root.gameSourcesLoading = false; root.gameStatus = root.gameSources.length ? "Matching game websites found." : "No configured website matched this title." } catch (e) { root.gameSources = []; root.gameSourcesLoading = false }
       return
     }
     if (line.indexOf("GAME_DEBUG:") === 0) {
@@ -86,6 +97,8 @@ Panel {
     gamePage = 1
     gameBrowsingTrending = true
     gameDebug = ""
+    gameSources = []
+    gameSourcesLoading = false
     logText = ""
     status = "Paste a link or search for a song to get started."
     cancelling = false
@@ -111,7 +124,7 @@ Panel {
 
   function gameTask(action, options) {
     if (root.workerRunning || !root.downloadService) return
-    root.gameStatus = action === "game-search" ? "Searching games…" : "Loading game catalogue…"
+    root.gameStatus = action === "game-search" ? "Searching games…" : action === "game-sources" ? "Checking game websites…" : "Loading game catalogue…"
     root.runTask(action, options)
   }
 
@@ -127,6 +140,10 @@ Panel {
   function workerExited(code, completedAction, wasCancelled) {
       root.cancelling = false
       if (completedAction === "config-load" && code === 0) return
+      if (completedAction === "game-detail" && root.selectedGame) {
+        root.gameSourcesLoading = true
+        gameSourcesTimer.restart()
+      }
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? "Failed — see details below."
@@ -333,10 +350,14 @@ Panel {
               Label { text: root.selectedGame ? ((root.selectedGame.genres || []).join(" · ") + (root.selectedGame.rating ? "\nRating " + root.selectedGame.rating + "/100" : "")) : ""; font.pixelSize: Style.font.bodySmall }
               Flow {
                 spacing: Style.space(6)
-                Choice { text: "Download (coming soon)"; enabled: false }
+                Repeater {
+                  model: root.gameSources
+                  Choice { required property var modelData; text: "Open " + root.sourceLabel(modelData.base); onClicked: Quickshell.execDetached(["omarchy-launch-browser", modelData.url]) }
+                }
                 Choice { text: "Open SteamDB"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", root.selectedGame.steamdbUrl]) }
                 Choice { text: "Open store"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
               }
+              Label { visible: root.gameSourcesLoading; text: "Checking configured game websites…"; font.pixelSize: Style.font.bodySmall }
             }
           }
           Column {

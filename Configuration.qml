@@ -10,12 +10,19 @@ Column {
   property string platform: "spotify"
   property var saved: ({})
   property var edits: ({})
+  property var gameUrls: []
+  property var gameEdits: ({})
   readonly property string qobuzMode: edits.qobuz_auth_mode || saved.qobuz_auth_mode || "password"
   signal requested(string action, var payload)
 
   function apply(values) {
     saved = values
     edits = ({})
+    try { gameUrls = JSON.parse(values.game_source_urls || '[]') } catch (e) { gameUrls = [] }
+    if (!gameUrls.length) gameUrls = ['']
+    const editsCopy = {}
+    for (let i = 0; i < gameUrls.length; i++) editsCopy[i] = gameUrls[i]
+    gameEdits = editsCopy
   }
   function fields() {
     const definitions = {
@@ -28,7 +35,8 @@ Column {
       tidal: [ ["tidal_user_id", "User ID", false], ["tidal_country_code", "Country code (e.g. DE)", false],
         ["tidal_access_token", "Access token", true], ["tidal_refresh_token", "Refresh token", true],
         ["tidal_token_expiry", "Token expiry (Unix timestamp)", false] ],
-      youtube: [ ["youtube_cookies", "Optional Netscape cookies file path", false] ]
+      youtube: [ ["youtube_cookies", "Optional Netscape cookies file path", false] ],
+      games: []
     }
     return definitions[platform]
   }
@@ -37,10 +45,10 @@ Column {
     width: parent.width
     spacing: Style.space(4)
     Repeater {
-      model: ["spotify", "qobuz", "deezer", "tidal", "youtube"]
+      model: ["spotify", "qobuz", "deezer", "tidal", "youtube", "games"]
       Button {
         required property string modelData
-        text: modelData === "youtube" ? "YT Music" : modelData.charAt(0).toUpperCase() + modelData.slice(1)
+        text: modelData === "youtube" ? "YT Music" : modelData === "games" ? "Games" : modelData.charAt(0).toUpperCase() + modelData.slice(1)
         selected: root.platform === modelData
         enabled: !root.busy
         focusable: true
@@ -60,6 +68,7 @@ Column {
       : root.platform === "qobuz" ? (root.qobuzMode === "password" ? "Sign in with your Qobuz account email and password." : "User ID login requires a user auth token. App ID and App Secret identify the app, not your account.")
       : root.platform === "deezer" ? "Enter the ARL cookie from your own Deezer account."
       : root.platform === "tidal" ? "Connect in your browser, or enter an existing Tidal session below."
+      : root.platform === "games" ? "Add one or more game website base URLs. Yoinker checks simple title matches when you open a game."
       : "YouTube Music search works without login. A cookies file is optional for downloads."
   }
   Button {
@@ -114,10 +123,36 @@ Column {
       }
     }
   }
+  Column {
+    visible: root.platform === "games"
+    width: root.width
+    spacing: Style.space(6)
+    Text { text: "Game website base URLs"; color: Color.foreground; font.pixelSize: Style.font.bodySmall }
+    Repeater {
+      model: root.gameUrls
+      Row {
+        required property int index
+        // Capture the delegate index.  Once a row is removed the Repeater
+        // may recycle delegates, so referring to a live `index` from the
+        // button can otherwise remove the wrong entry.
+        property int rowIndex: index
+        width: root.width; spacing: Style.space(4)
+        TextField {
+          width: parent.width - removeButton.width - Style.space(4)
+          text: root.gameEdits[rowIndex] !== undefined ? root.gameEdits[rowIndex] : modelData
+          placeholderText: "https://example.com"
+          enabled: !root.busy
+          onTextEdited: { const copy = Object.assign({}, root.gameEdits); copy[rowIndex] = text; root.gameEdits = copy }
+        }
+        Button { id: removeButton; text: "−"; enabled: !root.busy; onClicked: { if (root.gameUrls.length === 1) { root.gameUrls = [""]; root.gameEdits = ({0: ""}) } else { const urls = root.gameUrls.slice(); urls.splice(rowIndex, 1); const oldEdits = root.gameEdits; const copy = {}; for (let i = 0; i < urls.length; i++) { const oldIndex = i < rowIndex ? i : i + 1; copy[i] = oldEdits[oldIndex] !== undefined ? oldEdits[oldIndex] : urls[i] } root.gameUrls = urls; root.gameEdits = copy } } }
+      }
+    }
+    Button { text: "+ Add website"; enabled: !root.busy; onClicked: { root.gameUrls = root.gameUrls.concat([""]); const copy = Object.assign({}, root.gameEdits); copy[root.gameUrls.length - 1] = ""; root.gameEdits = copy } }
+  }
   Flow {
     width: parent.width
     spacing: Style.space(6)
-    Button { text: "Save"; enabled: !root.busy; focusable: true; bordered: true; onClicked: root.requested("config-save", {values: root.edits}) }
+    Button { text: "Save"; enabled: !root.busy; focusable: true; bordered: true; onClicked: { const values = Object.assign({}, root.edits); if (root.platform === "games") { const urls = []; for (let i = 0; i < root.gameUrls.length; i++) if ((root.gameEdits[i] || "").trim() !== "") urls.push(root.gameEdits[i].trim()); values.game_source_urls = JSON.stringify(urls) } root.requested("config-save", {values: values}) } }
     Button {
       visible: root.platform === "spotify" || root.platform === "tidal"
       text: "Connect " + (root.platform === "spotify" ? "Spotify" : "Tidal")
