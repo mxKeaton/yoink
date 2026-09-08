@@ -18,9 +18,9 @@ Panel {
   property var gameResults: []
   property var selectedGame: null
   property string gameStatus: "Browse trending games or search the catalogue."
-  property string gameDebug: ""
   property var gameSources: []
   property bool gameSourcesLoading: false
+  onSelectedGameChanged: if (detailCoverImage) detailCoverImage.fallbackIndex = 0
   Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
   property int gamePage: 1
   property bool gameBrowsingTrending: true
@@ -38,8 +38,6 @@ Panel {
   property string audioFormat: "best"
   property string videoQuality: "Best"
   property string audioQuality: "0"
-  property bool metadata: false
-  property bool subtitles: false
   property string status: "Paste a link or search for a song to get started."
   property string logText: ""
   property bool cancelling: false
@@ -71,10 +69,6 @@ Panel {
       try { root.gameSources = JSON.parse(line.slice(13)); root.gameSourcesLoading = false; root.gameStatus = root.gameSources.length ? "Matching game websites found." : "No configured website matched this title." } catch (e) { root.gameSources = []; root.gameSourcesLoading = false }
       return
     }
-    if (line.indexOf("GAME_DEBUG:") === 0) {
-      root.gameDebug = line.slice(11)
-      return
-    }
     if (line.indexOf("OPEN:") === 0) {
       const url = line.slice(5)
       if (url.indexOf("https://accounts.spotify.com/") === 0) {
@@ -97,7 +91,6 @@ Panel {
     selectedGame = null
     gamePage = 1
     gameBrowsingTrending = true
-    gameDebug = ""
     gameSources = []
     gameSourcesLoading = false
     logText = ""
@@ -114,11 +107,11 @@ Panel {
     root.action = action
     root.cancelling = false
     root.logText = ""
-    root.status = action === "formats" ? "Fetching available formats…" : "Starting download…"
+    root.status = "Starting download…"
     const options = {url: link.text, mode: mode, action: action,
       format: mode === "Video" ? videoFormat : audioFormat,
       quality: mode === "Video" ? videoQuality : audioQuality,
-      output: destination.text, metadata: metadata, subtitles: mode === "Video" && subtitles,
+      output: destination.text,
       selection: searching ? selectedSong : null, source: musicSource, musicCodec: musicCodec, musicQuality: musicQuality}
     runTask(action, options)
   }
@@ -159,7 +152,6 @@ Panel {
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? "Failed — see details below."
-        : completedAction === "formats" ? "Available formats listed below."
         : completedAction === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
       : completedAction === "download" ? "Download complete." : completedAction.indexOf("game-") === 0 ? root.gameStatus : "Configuration updated."
   }
@@ -277,11 +269,12 @@ Panel {
             }
             Button { id: closeButton; text: "✕"; focusable: true; onClicked: root.close() }
           }
-          Flow {
+          Row {
             width: parent.width; spacing: Style.space(6)
-            Button { text: "Music"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
-            Button { text: "Games"; selected: root.games; focusable: true; onClicked: { root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
-            Button { text: "Configuration"; selected: root.configuring; focusable: true; onClicked: { root.games = false; root.configuring = true } }
+            Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
+            Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
+            Item { width: Math.max(0, parent.width - musicTab.width - gamesTab.width - settingsTab.width - Style.space(18)); height: 1 }
+            Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.games = false; root.configuring = true } }
           }
           Configuration {
             id: configForm
@@ -295,7 +288,6 @@ Panel {
             visible: root.games && !root.configuring
             width: parent.width
             spacing: Style.space(10)
-            Label { text: "Game browser"; font.pixelSize: Style.font.title }
             TextField {
               id: gameQuery
               width: parent.width
@@ -309,13 +301,13 @@ Panel {
               Choice { text: "Search"; enabled: !root.workerRunning && gameQuery.text.trim() !== ""; onClicked: root.beginGameSearch(gameQuery.text) }
               Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: { root.gamePage = 1; root.gameBrowsingTrending = true; root.gameTask("game-trending", {page: 1}) } }
             }
-            Label { text: root.gameStatus; font.pixelSize: Style.font.bodySmall }
-            Flow {
+            Row {
               visible: root.selectedGame === null && root.gameBrowsingTrending
               width: parent.width; spacing: Style.space(6)
-              Choice { text: "‹ Previous"; enabled: !root.workerRunning && root.gamePage > 1; onClicked: { root.gamePage -= 1; root.gameTask("game-trending", {page: root.gamePage}) } }
-              Label { text: "Trending page " + root.gamePage; font.pixelSize: Style.font.bodySmall }
-              Choice { text: "Next ›"; enabled: !root.workerRunning && root.gamePage < 5 && root.gameResults.length > 0; onClicked: { root.gamePage += 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+              Choice { id: previousPage; opacity: root.gamePage > 1 ? 1 : 0; text: "‹ Previous"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage > 1; onClicked: { root.gamePage -= 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+              Choice { id: nextPage; opacity: root.gamePage < 5 ? 1 : 0; text: "Next ›"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage < 5 && root.gameResults.length > 0; onClicked: { root.gamePage += 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+              Item { width: Math.max(0, parent.width - previousPage.width - nextPage.width - pageLabel.width - Style.space(18)); height: 1 }
+              Label { id: pageLabel; text: "Page " + root.gamePage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
             }
             Grid {
               visible: root.selectedGame === null
@@ -332,11 +324,18 @@ Panel {
                   color: Color.background
                   border.color: cardMouse.containsMouse ? Color.accent : Color.foreground
                   border.width: 1
-                  property bool triedBackup: false
+                  property int coverFallbackIndex: 0
                   Image {
                     id: coverImage; anchors.fill: parent; anchors.margins: 1; fillMode: Image.PreserveAspectFit
-                    source: modelData.cover || ""; visible: status === Image.Ready; asynchronous: true
-                    onStatusChanged: if (status === Image.Error && !parent.triedBackup && modelData.backupCover !== "") { parent.triedBackup = true; source = modelData.backupCover }
+                    source: modelData.gridCover || ""; visible: status === Image.Ready; asynchronous: true
+                    onStatusChanged: {
+                      if (status !== Image.Error) return
+                      const fallbacks = modelData.gridFallbacks || []
+                      if (parent.coverFallbackIndex < fallbacks.length) {
+                        source = fallbacks[parent.coverFallbackIndex]
+                        parent.coverFallbackIndex += 1
+                      }
+                    }
                   }
                   Label {
                     anchors.centerIn: parent
@@ -355,7 +354,21 @@ Panel {
               visible: root.selectedGame !== null
               width: parent.width; spacing: Style.space(8)
               Button { text: "← Back to games"; focusable: true; onClicked: root.selectedGame = null }
-              Image { width: parent.width; height: Style.space(270); fillMode: Image.PreserveAspectFit; source: root.selectedGame ? root.selectedGame.cover : ""; asynchronous: true; visible: source !== "" }
+              Image {
+                id: detailCoverImage
+                property int fallbackIndex: 0
+                width: parent.width; height: Style.space(270); fillMode: Image.PreserveAspectFit; asynchronous: true
+                source: root.selectedGame ? (root.selectedGame.detailCover || root.selectedGame.gridCover || "") : ""
+                visible: status === Image.Ready
+                onStatusChanged: {
+                  if (status !== Image.Error || !root.selectedGame) return
+                  const fallbacks = root.selectedGame.detailFallbacks || []
+                  if (fallbackIndex < fallbacks.length) {
+                    source = fallbacks[fallbackIndex]
+                    fallbackIndex += 1
+                  }
+                }
+              }
               Label { text: root.selectedGame ? root.selectedGame.name : ""; font.pixelSize: Style.font.subtitle }
               Label { text: root.selectedGame ? root.selectedGame.summary : ""; width: parent.width; font.pixelSize: Style.font.bodySmall }
               Label { text: root.selectedGame ? ((root.selectedGame.genres || []).join(" · ") + (root.selectedGame.rating ? "\nRating " + root.selectedGame.rating + "/100" : "")) : ""; font.pixelSize: Style.font.bodySmall }
@@ -368,7 +381,6 @@ Panel {
                 Choice { text: "Open Steam"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
               }
               Label { visible: root.gameSourcesLoading; text: "Checking configured game websites…"; font.pixelSize: Style.font.bodySmall }
-              Label { visible: root.gameDebug !== ""; text: "Debug · " + root.gameDebug; width: parent.width; font.pixelSize: Style.font.bodySmall; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight }
             }
           }
           Column {
@@ -380,7 +392,6 @@ Panel {
             Choice { text: "Paste link"; selected: !root.searching; onClicked: root.searching = false }
             Choice { text: "Search titles"; selected: root.searching; onClicked: { root.searching = true; query.forceActiveFocus() } }
           }
-          Label { visible: !root.searching; text: "YouTube / Spotify song, playlist, album or artist" }
           Label {
             visible: !root.searching && /spotify.*[/:]artist[/:]/.test(link.text)
             width: parent.width
@@ -463,7 +474,7 @@ Panel {
               Choice { required property string modelData; text: modelData; selected: root.mode === modelData; onClicked: root.mode = modelData }
             }
           }
-          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video quality · maximum height" : "Audio quality · encoding bitrate" }
+          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video Quality" : "Audio Quality" }
           Flow {
             width: parent.width; spacing: Style.space(6)
             Repeater {
@@ -476,7 +487,7 @@ Panel {
               }
             }
           }
-          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video container" : "Audio format" }
+          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video Format" : "Audio Format" }
           Flow {
             width: parent.width; spacing: Style.space(6)
             Repeater {
@@ -492,14 +503,12 @@ Panel {
           Flow {
             width: parent.width; spacing: Style.space(6)
             visible: !root.searching && !root.spotifyLink
-            Choice { text: "Metadata"; selected: root.metadata; onClicked: root.metadata = !root.metadata }
-            Choice { visible: root.mode === "Video"; text: "English subtitles"; selected: root.subtitles; onClicked: root.subtitles = !root.subtitles }
           }
           Column {
             visible: root.musicInput
             width: parent.width
             spacing: Style.space(10)
-            Label { text: "Preferred source" }
+            Label { text: "Preferred Source" }
             Flow {
               width: parent.width; spacing: Style.space(6)
               Repeater {
@@ -525,7 +534,7 @@ Panel {
                 Choice { required property string modelData; required property int index; text: modelData; selected: root.musicQuality === index + 1; onClicked: root.musicQuality = index + 1 }
               }
             }
-            Label { text: "Output format" }
+            Label { text: "Output Format" }
             Flow {
               width: parent.width; spacing: Style.space(6)
               Repeater {
@@ -534,7 +543,7 @@ Panel {
               }
             }
           }
-          Label { text: "Save to" }
+          Label { text: "Save To" }
           TextField {
             id: destination
             width: parent.width
@@ -544,8 +553,7 @@ Panel {
           }
           Flow {
             width: parent.width; spacing: Style.space(6)
-            Choice { text: root.searching || root.musicInput ? "Download music" : "Download " + root.mode.toLowerCase(); enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
-            Choice { visible: !root.musicInput; text: "Available formats"; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("formats") }
+            Choice { text: root.searching || root.musicInput ? "Download Music" : "Download " + root.mode; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
           }
           }
           Button {

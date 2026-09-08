@@ -80,11 +80,9 @@ def main(options):
         if action == 'game-trending':
             results = games.trending(options.get('page', 1))
             print('GAMES:' + json.dumps(results), flush=True)
-            print('GAME_DEBUG:source=auto page=' + str(options.get('page', 1)) + ' results=' + str(len(results)) + ' covers=' + str(sum(bool(x.get('cover')) for x in results)), flush=True)
         elif action == 'game-search':
             results = games.search(options.get('query', ''))
             print('GAMES:' + json.dumps(results), flush=True)
-            print('GAME_DEBUG:source=auto search results=' + str(len(results)), flush=True)
         else:
             result = games.detail(options.get('id'), options.get('source', 'steam'))
             print('GAME_DETAIL:' + json.dumps(result), flush=True)

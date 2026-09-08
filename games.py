@@ -16,6 +16,30 @@ from urllib.request import Request, urlopen
 import settings
 
 PAGE_SIZE = 18
+_STEAM_DETAILS_CACHE = {}
+_STEAM_DETAILS_CACHE_TTL = 300
+_STEAM_DETAILS_SUCCESS_TTL = 3600
+
+
+def _steam_detail(appid):
+    """Return one Steam appdetails payload, using the short-lived cache."""
+    appid = str(appid)
+    now = time.time()
+    cached = _STEAM_DETAILS_CACHE.get(appid)
+    if cached:
+        stamp, data, success = cached
+        ttl = _STEAM_DETAILS_SUCCESS_TTL if success else _STEAM_DETAILS_CACHE_TTL
+        if now - stamp < ttl:
+            return data
+    try:
+        payload = _json('https://store.steampowered.com/api/appdetails?appids=' + appid + '&l=en')
+        entry = payload.get(appid, {}) if isinstance(payload, dict) else {}
+        data = entry.get('data', {}) if isinstance(entry, dict) and entry.get('success', True) else {}
+        success = bool(data)
+    except Exception:
+        data, success = {}, False
+    _STEAM_DETAILS_CACHE[appid] = (now, data if isinstance(data, dict) else {}, success)
+    return _STEAM_DETAILS_CACHE[appid][1]
 
 def source_urls():
     saved = settings.load()
@@ -96,10 +120,7 @@ def _game(item, source='steam'):
     cover = item.get('cover') or item.get('header_image') or item.get('capsule_image') or {}
     if isinstance(cover, dict):
         cover = cover.get('url', '')
-    if cover.startswith('//'):
-        cover = 'https:' + cover
-    if cover.startswith('http://'):
-        cover = 'https://' + cover[7:]
+    cover = _https_url(cover)
     if source == 'igdb' and cover and '/t_' not in cover:
         cover = cover.replace('/igdb/image/upload/', '/igdb/image/upload/t_cover_big/')
     timestamp = item.get('first_release_date') or 0
@@ -108,15 +129,41 @@ def _game(item, source='steam'):
     platforms = [p.get('name', '') if isinstance(p, dict) else str(p) for p in item.get('platforms', [])]
     identity = str(item.get('id') or item.get('appid') or '')
     steam_appid = str(item.get('steam_appid') or item.get('appid') or (item.get('id') if source == 'steam' and str(item.get('id', '')).isdigit() else '') or '')
+    grid_cover = cover
+    detail_cover = cover
+    grid_fallbacks = []
+    detail_fallbacks = []
     if steam_appid.isdigit():
+        # The catalogue and detail page use horizontal Steam header artwork.
+        # Keep the old portrait URL in ``cover`` for callers that still expect
+        # it, but never use that field for the discovery grid.
         steam_cover = 'https://cdn.cloudflare.steamstatic.com/steam/apps/' + steam_appid + '/library_600x900_2x.jpg'
+        header = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + steam_appid + '/header.jpg'
+        header_alt = 'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/' + steam_appid + '/header.jpg'
+        capsule = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + steam_appid + '/capsule_231x87.jpg'
+        capsule_alt = 'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/' + steam_appid + '/capsule_231x87.jpg'
         cover = steam_cover
+        grid_cover = header
+        detail_cover = _https_url(item.get('header_image') or item.get('capsule_image') or header)
+        grid_fallbacks = [header_alt, capsule, capsule_alt]
+        detail_fallbacks = [header, header_alt, capsule, capsule_alt]
     backup_cover = ('https://cdn.cloudflare.steamstatic.com/steam/apps/' + steam_appid + '/library_600x900.jpg') if steam_appid.isdigit() else ''
     return {'id': identity, 'name': item.get('name', 'Untitled'),
             'summary': item.get('summary') or item.get('short_description') or 'No description available.',
             'cover': cover, 'release': release, 'rating': round(float(item.get('rating') or 0)),
             'genres': [x for x in genres if x], 'platforms': [x for x in platforms if x], 'source': source,
-            'steamAppId': steam_appid, 'backupCover': backup_cover}
+            'steamAppId': steam_appid, 'backupCover': backup_cover,
+            'gridCover': grid_cover, 'gridFallbacks': grid_fallbacks,
+            'detailCover': detail_cover, 'detailFallbacks': detail_fallbacks}
+
+
+def _https_url(value):
+    value = str(value or '')
+    if value.startswith('//'):
+        return 'https:' + value
+    if value.startswith('http://'):
+        return 'https://' + value[7:]
+    return value
 
 
 def _igdb_headers():
@@ -144,17 +191,26 @@ def _steam_search(query):
 def _steam_trending(page=1):
     """Steam's public ranked search feed; no Steam Web API key required."""
     requested_start = max(0, (int(page) - 1) * PAGE_SIZE)
+    markup = ''
     try:
         data = _json('https://store.steampowered.com/search/results/?query=&start=0&count=200&dynamic_data=&sort_by=_ASC&filter=globaltopsellers&infinite=1&cc=us&l=en')
         markup = data.get('results_html', '')
+    except Exception:
+        # Steam sometimes blocks the JSON search endpoint while its normal
+        # public HTML search page remains available.
+        try:
+            request = Request('https://store.steampowered.com/search/?query=&start=0&count=200&filter=globaltopsellers', headers={'User-Agent': 'Yoink/0.4'})
+            with urlopen(request, timeout=12) as response:
+                markup = response.read().decode('utf-8', 'ignore')
+        except Exception:
+            markup = ''
+    if markup:
         results = []
         for match in re.finditer(r'data-ds-appid="([0-9,]+)"[\s\S]*?<span class="title">\s*([^<]+)', markup):
             appid = match.group(1).split(',')[0]
             results.append(_game({'appid': appid, 'name': html.unescape(match.group(2).strip())}))
         if results:
             return _with_grid_covers(results[requested_start:requested_start + PAGE_SIZE])
-    except Exception:
-        pass
     data = _json('https://store.steampowered.com/api/featuredcategories/?cc=us&l=en')
     items = data.get('specials', {}).get('items', []) + data.get('top_sellers', {}).get('items', [])
     seen, results = set(), []
@@ -225,50 +281,61 @@ def _with_grid_covers(results):
 
 
 def _cache_steam_covers(results):
-    """Resolve Steam artwork URLs and serve them directly to QML."""
-    appids = [g.get('steamAppId') for g in results if g.get('steamAppId')]
-    details = {}
-    def get_detail(appid):
-        try:
-            payload = _json('https://store.steampowered.com/api/appdetails?appids=' + appid + '&l=en')
-            return appid, payload.get(appid, {}).get('data', {})
-        except Exception:
-            return appid, {}
-    if appids:
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            details = dict(pool.map(get_detail, appids))
-    pending = []
+    """Use the same Steam artwork source for catalogue and detail views.
+
+    Steam's search feed gives us IDs, but not the final artwork URL.  The
+    detail view uses ``appdetails.header_image``; fetch those details for the
+    catalogue as well.  Requests are bounded to three workers and cached for
+    the life of the backend process so page changes do not create an eight-way
+    burst of duplicate lookups.
+    """
+    appids = []
     for game in results:
-        appid = game.get('steamAppId', '')
-        data = details.get(appid, {})
-        portrait_url = data.get('library_capsule_2x') or data.get('library_capsule')
-        detail_url = data.get('header_image') or data.get('capsule_image')
-        sgdb_key = settings.load().get('steamgriddb_api_key', '').strip()
-        if not portrait_url and sgdb_key and appid:
-            pending.append((game, appid, detail_url, sgdb_key))
-        if portrait_url:
-            pending.append((game, appid, detail_url, portrait_url))
+        appid = str(game.get('steamAppId') or '')
+        if appid.isdigit() and appid not in appids:
+            appids.append(appid)
+
+    now = time.time()
+    details = {}
+    missing = []
+    for appid in appids:
+        cached = _STEAM_DETAILS_CACHE.get(appid)
+        if cached:
+            stamp, data, success = cached
+            ttl = _STEAM_DETAILS_SUCCESS_TTL if success else _STEAM_DETAILS_CACHE_TTL
         else:
-            game['cover'] = detail_url or ''; game['backupCover'] = detail_url or game.get('backupCover', ''); game['portraitCover'] = ''
-    def resolve(item):
-        game, appid, detail, value = item
-        portrait = value
-        if value == sgdb_key:
-            try:
-                match = _sgdb_data(_json('https://www.steamgriddb.com/api/v2/games/steam/' + appid, headers={'Authorization': 'Bearer ' + value}))
-                portrait = _sgdb_covers(match['id']) if isinstance(match, dict) and match.get('id') else ''
-            except Exception:
-                portrait = ''
-        return game, detail, portrait
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        resolved = list(pool.map(resolve, pending))
-    for game, detail_url, portrait_url in resolved:
-        game['cover'] = detail_url or ''
-        game['backupCover'] = detail_url or game.get('backupCover', '')
-        if not portrait_url:
-            game['portraitCover'] = ''
+            stamp, data, success, ttl = 0, {}, False, 0
+        if cached and now - stamp < ttl:
+            details[appid] = data
+        else:
+            missing.append(appid)
+    if missing:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            fetched = list(pool.map(_steam_detail, missing))
+        details.update(dict(zip(missing, fetched)))
+
+    def unique(values):
+        return list(dict.fromkeys(value for value in values if value))
+
+    for game in results:
+        appid = str(game.get('steamAppId') or '')
+        data = details.get(appid, {})
+        if not appid.isdigit():
+            game.setdefault('gridCover', game.get('cover', ''))
+            game.setdefault('gridFallbacks', [])
+            game.setdefault('detailCover', game.get('cover', ''))
+            game.setdefault('detailFallbacks', [])
             continue
-        game['portraitCover'] = portrait_url
+        header = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + appid + '/header.jpg'
+        header_alt = 'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/' + appid + '/header.jpg'
+        capsule = 'https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/' + appid + '/capsule_231x87.jpg'
+        capsule_alt = 'https://shared.cloudflare.steamstatic.com/store_item_assets/steam/apps/' + appid + '/capsule_231x87.jpg'
+        steam_cover = _https_url(data.get('header_image') or data.get('capsule_image') or '')
+        grid_cover = steam_cover or game.get('gridCover') or header
+        game['gridCover'] = grid_cover
+        game['gridFallbacks'] = unique([header, header_alt, capsule, capsule_alt] + list(game.get('gridFallbacks') or []))
+        game['detailCover'] = steam_cover or game.get('detailCover') or grid_cover
+        game['detailFallbacks'] = unique([header, header_alt, capsule, capsule_alt] + list(game.get('detailFallbacks') or []))
     return results
 
 
@@ -311,6 +378,5 @@ def detail(identity, source='steam'):
         results = _igdb('where id = ' + str(int(identity)) + '; fields name,summary,cover.url,first_release_date,rating,genres.name,platforms.name;')
         if results:
             return results[0]
-    data = _json('https://store.steampowered.com/api/appdetails?appids=' + str(int(identity)) + '&l=en')
-    item = data.get(str(int(identity)), {}).get('data', {})
+    item = _steam_detail(str(int(identity)))
     return _with_grid_covers([_game({'appid': identity, **item}, 'steam')])[0]

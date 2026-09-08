@@ -64,7 +64,7 @@ Column {
   }
   Button {
     visible: root.platform === "spotify"
-    text: "Create Spotify app ↗"
+    text: "Create Spotify App ↗"
     enabled: !root.busy
     focusable: true
     bordered: true
@@ -127,18 +127,10 @@ Column {
       onClicked: root.requested(root.platform + "-connect", {values: root.edits})
     }
     Button {
-      text: "Forget this platform"
+      text: "Forget This Platform"
       enabled: !root.busy
       focusable: true
       onClicked: root.requested("config-forget", {platform: root.platform})
     }
-  }
-  Text {
-    width: parent.width
-    text: "Saved privately in ~/.config/yoink/settings.json. Secret fields stay hidden; blank fields preserve saved secrets."
-    color: Color.foreground
-    font.family: Style.font.family
-    font.pixelSize: Style.font.bodySmall
-    wrapMode: Text.Wrap
   }
 }
