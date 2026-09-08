@@ -9,7 +9,8 @@ import html
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote, urljoin, quote_plus
+from urllib.parse import quote, urljoin, quote_plus, urlparse
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import settings
@@ -30,7 +31,7 @@ def source_urls():
     # maintained directly in settings.json while remaining absent from the
     # Games configuration controls.
     predefined = [str(value).strip() for value in read_list(saved.get('game_always_checked_urls', []))]
-    configured = [str(value).strip() for value in read_list(saved.get('game_source_urls', []))]
+    configured = []
     combined = []
     for value in predefined + configured:
         value = value.rstrip('/')
@@ -44,7 +45,14 @@ def source_matches(name):
     if not slug:
         return []
     def check(base):
-        candidates = (urljoin(base + '/', slug), urljoin(base + '/', quote_plus(str(name).lower())))
+        encoded_title = quote_plus(str(name).lower())
+        if 'ankergames.net' in base.lower():
+            # Ankergames uses /game/<slug> and currently returns 403 to
+            # non-browser clients even for real pages.
+            candidates = (urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
+        else:
+            candidates = (urljoin(base + '/', slug), urljoin(base + '/', encoded_title),
+                          urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
         match_url = candidates[0]
         valid = False
         for url in candidates:
@@ -53,11 +61,15 @@ def source_matches(name):
                 with urlopen(request, timeout=4) as response:
                     final_url = response.geturl() or url
                     body = response.read(65536).decode('utf-8', 'ignore').lower()
-                    error_url = any(token in final_url.lower() for token in ('/error', '/404', 'not-found', 'page-not-found'))
+                    final_path = urlparse(final_url).path.rstrip('/').lower()
+                    error_url = (final_path in ('', '/') or any(token in final_path for token in ('/error', '/404', 'not-found', 'page-not-found')))
                     error_body = any(token in body for token in ('page not found', '404 not found', 'error occurred', 'does not exist'))
                     if 200 <= response.status < 400 and not error_url and not error_body:
                         match_url, valid = final_url, True
                         break
+            except HTTPError as error:
+                if error.code == 403 and 'ankergames.net' in base.lower():
+                    return {'base': base, 'url': url, 'valid': True}
             except Exception:
                 continue
         return {'base': base, 'url': match_url, 'valid': valid}
@@ -104,8 +116,7 @@ def _game(item, source='steam'):
             'summary': item.get('summary') or item.get('short_description') or 'No description available.',
             'cover': cover, 'release': release, 'rating': round(float(item.get('rating') or 0)),
             'genres': [x for x in genres if x], 'platforms': [x for x in platforms if x], 'source': source,
-            'steamAppId': steam_appid, 'backupCover': backup_cover,
-            'steamdbUrl': 'https://steamdb.info/app/' + (steam_appid or identity) + '/'}
+            'steamAppId': steam_appid, 'backupCover': backup_cover}
 
 
 def _igdb_headers():

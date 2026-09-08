@@ -46,7 +46,8 @@ Panel {
   property string action: "download"
 
   function sourceLabel(url) {
-    return String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
+    const name = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
+    return name.replace(/[-_]+/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
   }
 
   function appendLog(line) {
@@ -126,6 +127,17 @@ Panel {
     if (root.workerRunning || !root.downloadService) return
     root.gameStatus = action === "game-search" ? "Searching games…" : action === "game-sources" ? "Checking game websites…" : "Loading game catalogue…"
     root.runTask(action, options)
+  }
+
+  function beginGameSearch(value) {
+    const text = String(value || "").trim()
+    if (!text) return
+    root.selectedGame = null
+    root.gameSources = []
+    root.gameSourcesLoading = false
+    root.gamePage = 1
+    root.gameBrowsingTrending = false
+    root.gameTask("game-search", {query: text})
   }
 
   function runTask(action, options) {
@@ -267,7 +279,7 @@ Panel {
           }
           Flow {
             width: parent.width; spacing: Style.space(6)
-            Button { text: "Download"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
+            Button { text: "Music"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
             Button { text: "Games"; selected: root.games; focusable: true; onClicked: { root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
             Button { text: "Configuration"; selected: root.configuring; focusable: true; onClicked: { root.games = false; root.configuring = true } }
           }
@@ -290,15 +302,14 @@ Panel {
               placeholderText: "Search games…"
               enabled: !root.workerRunning
               selectByMouse: true
-              onAccepted: if (text.trim()) root.gameTask("game-search", {query: text})
+              onAccepted: root.beginGameSearch(text)
             }
             Flow {
               width: parent.width; spacing: Style.space(6)
-              Choice { text: "Search"; enabled: !root.workerRunning && gameQuery.text.trim() !== ""; onClicked: { root.gamePage = 1; root.gameBrowsingTrending = false; root.gameTask("game-search", {query: gameQuery.text}) } }
+              Choice { text: "Search"; enabled: !root.workerRunning && gameQuery.text.trim() !== ""; onClicked: root.beginGameSearch(gameQuery.text) }
               Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: { root.gamePage = 1; root.gameBrowsingTrending = true; root.gameTask("game-trending", {page: 1}) } }
             }
             Label { text: root.gameStatus; font.pixelSize: Style.font.bodySmall }
-            Label { visible: root.gameDebug !== ""; text: "Debug · " + root.gameDebug; font.pixelSize: Style.font.bodySmall; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight }
             Flow {
               visible: root.selectedGame === null && root.gameBrowsingTrending
               width: parent.width; spacing: Style.space(6)
@@ -354,10 +365,10 @@ Panel {
                   model: root.gameSources
                   Choice { required property var modelData; text: "Open " + root.sourceLabel(modelData.base); onClicked: Quickshell.execDetached(["omarchy-launch-browser", modelData.url]) }
                 }
-                Choice { text: "Open SteamDB"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", root.selectedGame.steamdbUrl]) }
-                Choice { text: "Open store"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
+                Choice { text: "Open Steam"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
               }
               Label { visible: root.gameSourcesLoading; text: "Checking configured game websites…"; font.pixelSize: Style.font.bodySmall }
+              Label { visible: root.gameDebug !== ""; text: "Debug · " + root.gameDebug; width: parent.width; font.pixelSize: Style.font.bodySmall; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight }
             }
           }
           Column {

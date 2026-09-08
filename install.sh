@@ -28,13 +28,31 @@ for _ in {1..12}; do
   fi
   sleep 1
 done
-omarchy restart shell
-for _ in {1..12}; do
-  if timeout 2 omarchy-shell shell ping >/dev/null 2>&1; then
-    break
-  fi
-  sleep 1
-done
+restart_shell() {
+  # omarchy restart shell has a short internal readiness deadline. Plugin
+  # rescans can exceed it even though the shell is still starting normally.
+  # Keep the installer alive and wait on the actual IPC endpoint instead.
+  omarchy restart shell || true
+  for _ in {1..30}; do
+    if timeout 2 omarchy-shell shell ping >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  # A second attempt recovers cases where the first launch was interrupted by
+  # the old shell exiting slowly.
+  omarchy restart shell || true
+  for _ in {1..30}; do
+    if timeout 2 omarchy-shell shell ping >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Omarchy shell did not become ready after two restart attempts." >&2
+  return 1
+}
+
+restart_shell
 if [[ -d "$plugin_dir/denis.media-downloader" ]]; then
   omarchy plugin disable denis.media-downloader
 fi

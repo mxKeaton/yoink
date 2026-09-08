@@ -12,7 +12,7 @@ class GameCatalogueTests(unittest.TestCase):
             result = games.trending()
         self.assertEqual(result[0]['id'], '42')
         self.assertIn('library_600x900_2x.jpg', result[0]['cover'])
-        self.assertIn('steamdb.info/app/42', result[0]['steamdbUrl'])
+        self.assertNotIn('steamdbUrl', result[0])
 
     def test_search_falls_back_to_steam(self):
         with patch.object(games.settings, 'load', return_value={}), \

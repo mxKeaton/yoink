@@ -53,7 +53,7 @@ def main(options):
         print('Configuration saved.', flush=True)
     elif action == 'config-forget':
         platform = options.get('platform')
-        if platform not in ('spotify', 'qobuz', 'deezer', 'tidal', 'youtube', 'games'):
+        if platform not in ('spotify', 'qobuz', 'deezer', 'tidal', 'youtube'):
             raise ValueError('Unknown platform.')
         clear = {key: '' for key in settings.FIELDS if key.startswith(platform + '_')}
         if platform == 'spotify':
