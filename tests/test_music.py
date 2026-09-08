@@ -162,7 +162,7 @@ class StreamripDownloadTests(unittest.IsolatedAsyncioTestCase):
                 await catalogs.download(match, output, 'original')
                 await catalogs.download(match, output, 'original')
                 media.downloadable.download.assert_awaited_once()
-                self.assertTrue((output / '.yoinker-qobuz-123-original.json').exists())
+                self.assertTrue((output / '.yoink-qobuz-123-original.json').exists())
 
     async def test_failed_transfer_never_marked_complete(self):
         from types import SimpleNamespace
@@ -175,5 +175,5 @@ class StreamripDownloadTests(unittest.IsolatedAsyncioTestCase):
                 catalogs.client = AsyncMock()
                 with self.assertRaises(OSError):
                     await catalogs.download({'id': '123', 'source': 'qobuz'}, output, 'original')
-                self.assertFalse(list(output.glob('.yoinker*')))
+                self.assertFalse(list(output.glob('.yoink*')))
                 media.postprocess.assert_not_awaited()

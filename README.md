@@ -1,6 +1,6 @@
-# Yoinker
+# Yoink
 
-Yoinker is an Omarchy bar plugin for downloading video and music from a small,
+Yoink is an Omarchy bar plugin for downloading video and music from a small,
 floating popup.
 
 ## Features
@@ -19,12 +19,12 @@ floating popup.
 
 ```sh
 omarchy pkg add streamrip python-ytmusicapi yt-dlp ffmpeg
-git clone https://github.com/mxKeaton/yoinker.git
-cd yoinker
+git clone https://github.com/mxKeaton/yoink.git
+cd yoink
 ./install.sh
 ```
 
-Yoinker appears as a download icon on the right side of the Omarchy bar. If it
+Yoink appears as a download icon on the right side of the Omarchy bar. If it
 does not appear immediately, run:
 
 ```sh
@@ -33,7 +33,7 @@ omarchy restart shell
 
 ## Setup
 
-Open Yoinker and select **Configuration** to connect the services you use:
+Open Yoink and select **Configuration** to connect the services you use:
 
 - **Spotify:** [create a Spotify app](https://developer.spotify.com/dashboard/create),
   enter its client ID, and connect through the browser.
@@ -46,19 +46,19 @@ Open Yoinker and select **Configuration** to connect the services you use:
 - **Games:** optional IGDB/Twitch client ID and secret add richer catalogue
   metadata. Steam browsing works without credentials.
 
-Credentials are stored locally in `~/.config/yoinker/settings.json` with private
+Credentials are stored locally in `~/.config/yoink/settings.json` with private
 file permissions.
 
 ## Usage
 
 Paste a supported link or select **Search titles**. Choose the preferred source,
-quality, and format, then press **Download**. Yoinker tries other configured
-sources when needed and uses YouTube Music last. Yoinker automatically uses the
+quality, and format, then press **Download**. Yoink tries other configured
+sources when needed and uses YouTube Music last. Yoink automatically uses the
 first result returned by each source.
 
-Downloads are saved under `~/Downloads/Yoinker` by default. Temporary artwork
+Downloads are saved under `~/Downloads/Yoink` by default. Temporary artwork
 is removed after covers are embedded into the audio files.
 
-Use Yoinker only to download media you are authorized to access and save.
-Game download buttons are placeholders; Yoinker only opens the related SteamDB
+Use Yoink only to download media you are authorized to access and save.
+Game download buttons are placeholders; Yoink only opens the related SteamDB
 or Steam store page.

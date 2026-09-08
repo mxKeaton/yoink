@@ -155,7 +155,7 @@ class Catalogs:
             raise RuntimeError('The matched recording is not streamable with this account.')
         await media.preprocess()
         # Do not overwrite a completed track during playlist retries.
-        marker = output / f'.yoinker-{source}-{match["id"]}-{codec}.json'
+        marker = output / f'.yoink-{source}-{match["id"]}-{codec}.json'
         if marker.exists():
             completed = Path(json.loads(marker.read_text())['path'])
             if completed.is_file() and completed.stat().st_size:
@@ -187,7 +187,7 @@ class Catalogs:
 def report_directory(output):
     state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local' / 'state')))
     identity = hashlib.sha256(str(output.resolve()).encode()).hexdigest()[:20]
-    folder = state / 'yoinker' / 'reports' / identity
+    folder = state / 'yoink' / 'reports' / identity
     folder.mkdir(parents=True, exist_ok=True)
     return folder
 
@@ -214,7 +214,7 @@ async def run(options):
         name, tracks = spotify.tracks_from_link(options['url'].strip())
     data = settings.load()
     order = source_order(source, data)
-    output = Path(options.get('output', '').strip() or str(Path.home() / 'Downloads' / 'Yoinker' / 'Music')).expanduser().absolute() / safe_folder(name)
+    output = Path(options.get('output', '').strip() or str(Path.home() / 'Downloads' / 'Yoink' / 'Music')).expanduser().absolute() / safe_folder(name)
     output.mkdir(parents=True, exist_ok=True)
     config = make_config(data, output, quality, codec)
     catalogs = Catalogs(config, data)

@@ -57,7 +57,7 @@ def source_matches(name):
         valid = False
         for url in candidates:
             try:
-                request = Request(url, headers={'User-Agent': 'Yoinker/0.4'})
+                request = Request(url, headers={'User-Agent': 'Yoink/0.4'})
                 with urlopen(request, timeout=4) as response:
                     final_url = response.geturl() or url
                     body = response.read(65536).decode('utf-8', 'ignore').lower()
@@ -83,7 +83,7 @@ def source_matches(name):
 
 def _json(url, data=None, headers=None):
     body = None if data is None else (data if isinstance(data, bytes) else json.dumps(data).encode())
-    request = Request(url, data=body, headers={'User-Agent': 'Yoinker/0.4', **(headers or {})})
+    request = Request(url, data=body, headers={'User-Agent': 'Yoink/0.4', **(headers or {})})
     if body and not isinstance(data, bytes):
         request.add_header('Content-Type', 'application/json')
     elif body:

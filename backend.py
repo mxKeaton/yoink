@@ -1,5 +1,5 @@
 #!/usr/bin/python
-"""JSON-over-stdin bridge for the Yoinker popup."""
+"""JSON-over-stdin bridge for the Yoink popup."""
 import asyncio
 import json
 import logging

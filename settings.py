@@ -1,8 +1,9 @@
-"""Private Yoinker settings; credentials never travel in command arguments."""
+"""Private Yoink settings; credentials never travel in command arguments."""
 import fcntl
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -22,7 +23,15 @@ def qobuz_auth_mode(data):
 
 
 def directory():
-    return Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'yoinker'
+    base = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
+    current = base / 'yoink'
+    legacy = base / ('yo' + 'inker')
+    if not current.exists() and legacy.exists():
+        try:
+            shutil.copytree(legacy, current)
+        except OSError:
+            pass
+    return current
 
 
 def load():

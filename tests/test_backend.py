@@ -45,7 +45,7 @@ class BackendStartupTests(unittest.TestCase):
                 self.assertNotIn('Traceback', result.stderr)
                 self.assertNotIn('test-secret', result.stdout + result.stderr)
                 self.assertEqual({p.name: p.read_bytes() for p in plugin.iterdir()}, before)
-            self.assertTrue((root/'config'/'yoinker'/'settings.json').exists())
+            self.assertTrue((root/'config'/'yoink'/'settings.json').exists())
 
 
 if __name__ == '__main__':

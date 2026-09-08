@@ -5,12 +5,12 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "denis.yoinker"
-  ipcTarget: "denis.yoinker"
+  moduleName: "denis.yoink"
+  ipcTarget: "denis.yoink"
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
 
-  readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoinker") : null
+  readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
 
   property bool configuring: false
@@ -192,7 +192,7 @@ Panel {
     foreground: root.downloadService && root.downloadService.resultState === "success" ? Color.accent
       : root.downloadService && root.downloadService.resultState === "failed" ? Color.urgent
       : root.bar ? root.bar.barForeground : Color.foreground
-    tooltipText: root.workerRunning ? root.status : "Yoinker"
+    tooltipText: root.workerRunning ? root.status : "Yoink"
     onPressed: root.toggle()
   }
 
@@ -266,7 +266,7 @@ Panel {
 
           Row {
             width: parent.width
-            Label { text: "Yoinker"; font.pixelSize: Style.font.title; width: parent.width - clearButton.width - closeButton.width }
+            Label { text: "Yoink"; font.pixelSize: Style.font.title; width: parent.width - clearButton.width - closeButton.width }
             Button {
               id: clearButton
               text: "Clear"
@@ -514,7 +514,7 @@ Panel {
             }
             Label {
               width: parent.width
-              text: "Yoinker tries this service first, then your other configured services. YouTube Music is always the last resort."
+              text: "Yoink tries this service first, then your other configured services. YouTube Music is always the last resort."
               font.pixelSize: Style.font.bodySmall
             }
             Label { text: "Quality · limited by source and account" }
@@ -538,7 +538,7 @@ Panel {
           TextField {
             id: destination
             width: parent.width
-            placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoinker/Music" : "~/Downloads/Yoinker/" + root.mode
+            placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoink/Music" : "~/Downloads/Yoink/" + root.mode
             enabled: !root.workerRunning
             selectByMouse: true
           }

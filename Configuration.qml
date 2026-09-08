@@ -135,7 +135,7 @@ Column {
   }
   Text {
     width: parent.width
-    text: "Saved privately in ~/.config/yoinker/settings.json. Secret fields stay hidden; blank fields preserve saved secrets."
+    text: "Saved privately in ~/.config/yoink/settings.json. Secret fields stay hidden; blank fields preserve saved secrets."
     color: Color.foreground
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
