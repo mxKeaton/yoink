@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 FIELDS = {
+    'game_always_checked_urls',
     'spotify_client_id', 'qobuz_email', 'qobuz_password', 'qobuz_user_id',
     'qobuz_token', 'qobuz_auth_mode', 'qobuz_app_id', 'qobuz_app_secret', 'deezer_arl', 'tidal_user_id', 'tidal_country_code',
     'tidal_access_token', 'tidal_refresh_token', 'tidal_token_expiry',

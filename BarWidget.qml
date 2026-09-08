@@ -14,6 +14,16 @@ Panel {
   readonly property bool workerRunning: downloadService ? downloadService.running : false
 
   property bool configuring: false
+  property bool games: false
+  property var gameResults: []
+  property var selectedGame: null
+  property string gameStatus: "Browse trending games or search the catalogue."
+  property string gameDebug: ""
+  property var gameSources: []
+  property bool gameSourcesLoading: false
+  Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
+  property int gamePage: 1
+  property bool gameBrowsingTrending: true
   property bool searching: false
   property var searchResults: []
   property var selectedSong: null
@@ -35,6 +45,11 @@ Panel {
   property bool cancelling: false
   property string action: "download"
 
+  function sourceLabel(url) {
+    const name = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
+    return name.replace(/[-_]+/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
+  }
+
   function appendLog(line) {
     if (line.indexOf("CONFIG:") === 0) {
       try { configForm.apply(JSON.parse(line.slice(7))) } catch (e) {}
@@ -42,6 +57,22 @@ Panel {
     }
     if (line.indexOf("SEARCH:") === 0) {
       try { root.searchResults = JSON.parse(line.slice(7)) } catch (e) { root.status = "Could not read search results." }
+      return
+    }
+    if (line.indexOf("GAMES:") === 0) {
+      try { root.gameResults = JSON.parse(line.slice(6)); root.gameStatus = root.gameResults.length ? "Select a game to view details." : "No games found." } catch (e) { root.gameStatus = "Could not read game results." }
+      return
+    }
+    if (line.indexOf("GAME_DETAIL:") === 0) {
+      try { root.selectedGame = JSON.parse(line.slice(12)); root.gameStatus = "Game details loaded." } catch (e) { root.gameStatus = "Could not read game details." }
+      return
+    }
+    if (line.indexOf("GAME_SOURCES:") === 0) {
+      try { root.gameSources = JSON.parse(line.slice(13)); root.gameSourcesLoading = false; root.gameStatus = root.gameSources.length ? "Matching game websites found." : "No configured website matched this title." } catch (e) { root.gameSources = []; root.gameSourcesLoading = false }
+      return
+    }
+    if (line.indexOf("GAME_DEBUG:") === 0) {
+      root.gameDebug = line.slice(11)
       return
     }
     if (line.indexOf("OPEN:") === 0) {
@@ -62,6 +93,13 @@ Panel {
     query.text = ""
     searchResults = []
     selectedSong = null
+    gameResults = []
+    selectedGame = null
+    gamePage = 1
+    gameBrowsingTrending = true
+    gameDebug = ""
+    gameSources = []
+    gameSourcesLoading = false
     logText = ""
     status = "Paste a link or search for a song to get started."
     cancelling = false
@@ -85,6 +123,23 @@ Panel {
     runTask(action, options)
   }
 
+  function gameTask(action, options) {
+    if (root.workerRunning || !root.downloadService) return
+    root.gameStatus = action === "game-search" ? "Searching games…" : action === "game-sources" ? "Checking game websites…" : "Loading game catalogue…"
+    root.runTask(action, options)
+  }
+
+  function beginGameSearch(value) {
+    const text = String(value || "").trim()
+    if (!text) return
+    root.selectedGame = null
+    root.gameSources = []
+    root.gameSourcesLoading = false
+    root.gamePage = 1
+    root.gameBrowsingTrending = false
+    root.gameTask("game-search", {query: text})
+  }
+
   function runTask(action, options) {
     if (root.workerRunning || !root.downloadService) return
     root.action = action
@@ -97,12 +152,16 @@ Panel {
   function workerExited(code, completedAction, wasCancelled) {
       root.cancelling = false
       if (completedAction === "config-load" && code === 0) return
+      if (completedAction === "game-detail" && root.selectedGame) {
+        root.gameSourcesLoading = true
+        gameSourcesTimer.restart()
+      }
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? "Failed — see details below."
         : completedAction === "formats" ? "Available formats listed below."
         : completedAction === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
-        : completedAction === "download" ? "Download complete." : "Configuration updated."
+      : completedAction === "download" ? "Download complete." : completedAction.indexOf("game-") === 0 ? root.gameStatus : "Configuration updated."
   }
 
   Connections {
@@ -184,8 +243,8 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.configuring ? configForm : link
-    contentWidth: fittedContentWidth(Style.space(480))
+    focusTarget: root.configuring ? configForm : root.games ? gameQuery : link
+    contentWidth: fittedContentWidth(Style.space(620))
     contentHeight: fittedContentHeight(form.implicitHeight)
 
     Item {
@@ -220,20 +279,102 @@ Panel {
           }
           Flow {
             width: parent.width; spacing: Style.space(6)
-            Button { text: "Download"; selected: !root.configuring; focusable: true; onClicked: root.configuring = false }
-            Button { text: "Configuration"; selected: root.configuring; focusable: true; onClicked: root.configuring = true }
+            Button { text: "Music"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
+            Button { text: "Games"; selected: root.games; focusable: true; onClicked: { root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
+            Button { text: "Configuration"; selected: root.configuring; focusable: true; onClicked: { root.games = false; root.configuring = true } }
           }
           Configuration {
             id: configForm
             width: parent.width
-            visible: root.configuring
+            visible: root.configuring && !root.games
             busy: root.workerRunning
             onRequested: (action, payload) => root.runTask(action, payload)
           }
           Column {
+            id: gamesView
+            visible: root.games && !root.configuring
+            width: parent.width
+            spacing: Style.space(10)
+            Label { text: "Game browser"; font.pixelSize: Style.font.title }
+            TextField {
+              id: gameQuery
+              width: parent.width
+              placeholderText: "Search games…"
+              enabled: !root.workerRunning
+              selectByMouse: true
+              onAccepted: root.beginGameSearch(text)
+            }
+            Flow {
+              width: parent.width; spacing: Style.space(6)
+              Choice { text: "Search"; enabled: !root.workerRunning && gameQuery.text.trim() !== ""; onClicked: root.beginGameSearch(gameQuery.text) }
+              Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: { root.gamePage = 1; root.gameBrowsingTrending = true; root.gameTask("game-trending", {page: 1}) } }
+            }
+            Label { text: root.gameStatus; font.pixelSize: Style.font.bodySmall }
+            Flow {
+              visible: root.selectedGame === null && root.gameBrowsingTrending
+              width: parent.width; spacing: Style.space(6)
+              Choice { text: "‹ Previous"; enabled: !root.workerRunning && root.gamePage > 1; onClicked: { root.gamePage -= 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+              Label { text: "Trending page " + root.gamePage; font.pixelSize: Style.font.bodySmall }
+              Choice { text: "Next ›"; enabled: !root.workerRunning && root.gamePage < 5 && root.gameResults.length > 0; onClicked: { root.gamePage += 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+            }
+            Grid {
+              visible: root.selectedGame === null
+              width: parent.width
+              columns: 3
+              columnSpacing: Style.space(8); rowSpacing: Style.space(8)
+              Repeater {
+                model: root.gameResults
+                Rectangle {
+                  required property var modelData
+                  width: (gamesView.width - Style.space(24)) / 3
+                  height: width * 430 / 920
+                  radius: 0
+                  color: Color.background
+                  border.color: cardMouse.containsMouse ? Color.accent : Color.foreground
+                  border.width: 1
+                  property bool triedBackup: false
+                  Image {
+                    id: coverImage; anchors.fill: parent; anchors.margins: 1; fillMode: Image.PreserveAspectFit
+                    source: modelData.cover || ""; visible: status === Image.Ready; asynchronous: true
+                    onStatusChanged: if (status === Image.Error && !parent.triedBackup && modelData.backupCover !== "") { parent.triedBackup = true; source = modelData.backupCover }
+                  }
+                  Label {
+                    anchors.centerIn: parent
+                    width: parent.width - Style.space(12)
+                    horizontalAlignment: Text.AlignHCenter
+                    text: modelData.name
+                    visible: coverImage.status !== Image.Ready
+                    font.pixelSize: Style.font.bodySmall
+                    color: cardMouse.containsMouse ? Color.background : Color.foreground
+                  }
+                  MouseArea { id: cardMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedGame = modelData; root.gameTask("game-detail", {id: modelData.id, source: modelData.source}) } }
+                }
+              }
+            }
+            Column {
+              visible: root.selectedGame !== null
+              width: parent.width; spacing: Style.space(8)
+              Button { text: "← Back to games"; focusable: true; onClicked: root.selectedGame = null }
+              Image { width: parent.width; height: Style.space(270); fillMode: Image.PreserveAspectFit; source: root.selectedGame ? root.selectedGame.cover : ""; asynchronous: true; visible: source !== "" }
+              Label { text: root.selectedGame ? root.selectedGame.name : ""; font.pixelSize: Style.font.subtitle }
+              Label { text: root.selectedGame ? root.selectedGame.summary : ""; width: parent.width; font.pixelSize: Style.font.bodySmall }
+              Label { text: root.selectedGame ? ((root.selectedGame.genres || []).join(" · ") + (root.selectedGame.rating ? "\nRating " + root.selectedGame.rating + "/100" : "")) : ""; font.pixelSize: Style.font.bodySmall }
+              Flow {
+                spacing: Style.space(6)
+                Repeater {
+                  model: root.gameSources
+                  Choice { required property var modelData; text: "Open " + root.sourceLabel(modelData.base); onClicked: Quickshell.execDetached(["omarchy-launch-browser", modelData.url]) }
+                }
+                Choice { text: "Open Steam"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
+              }
+              Label { visible: root.gameSourcesLoading; text: "Checking configured game websites…"; font.pixelSize: Style.font.bodySmall }
+              Label { visible: root.gameDebug !== ""; text: "Debug · " + root.gameDebug; width: parent.width; font.pixelSize: Style.font.bodySmall; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight }
+            }
+          }
+          Column {
             width: parent.width
             spacing: Style.space(12)
-            visible: !root.configuring
+            visible: !root.configuring && !root.games
           Flow {
             width: parent.width; spacing: Style.space(6)
             Choice { text: "Paste link"; selected: !root.searching; onClicked: root.searching = false }

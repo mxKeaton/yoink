@@ -28,7 +28,7 @@ Column {
       tidal: [ ["tidal_user_id", "User ID", false], ["tidal_country_code", "Country code (e.g. DE)", false],
         ["tidal_access_token", "Access token", true], ["tidal_refresh_token", "Refresh token", true],
         ["tidal_token_expiry", "Token expiry (Unix timestamp)", false] ],
-      youtube: [ ["youtube_cookies", "Optional Netscape cookies file path", false] ]
+      youtube: [ ["youtube_cookies", "Optional Netscape cookies file path", false] ],
     }
     return definitions[platform]
   }
@@ -117,7 +117,7 @@ Column {
   Flow {
     width: parent.width
     spacing: Style.space(6)
-    Button { text: "Save"; enabled: !root.busy; focusable: true; bordered: true; onClicked: root.requested("config-save", {values: root.edits}) }
+    Button { text: "Save"; enabled: !root.busy; focusable: true; bordered: true; onClicked: root.requested("config-save", {values: Object.assign({}, root.edits)}) }
     Button {
       visible: root.platform === "spotify" || root.platform === "tidal"
       text: "Connect " + (root.platform === "spotify" ? "Spotify" : "Tidal")

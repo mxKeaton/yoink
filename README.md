@@ -12,6 +12,8 @@ floating popup.
 - Choose the quality, output format, destination, metadata, and subtitles
 - Prefer Qobuz, Deezer, or Tidal, with YouTube Music as the final fallback
 - Keep downloads running when the popup closes and show progress on the bar icon
+- Browse trending games, search titles, and view metadata from IGDB with Steam
+  catalogue fallback
 
 ## Installation
 
@@ -41,6 +43,8 @@ Open Yoinker and select **Configuration** to connect the services you use:
 - **Deezer:** enter your account's ARL cookie.
 - **Tidal:** connect through the browser or enter an existing session.
 - **YouTube Music:** no account is required. A cookies file is optional.
+- **Games:** optional IGDB/Twitch client ID and secret add richer catalogue
+  metadata. Steam browsing works without credentials.
 
 Credentials are stored locally in `~/.config/yoinker/settings.json` with private
 file permissions.
@@ -56,3 +60,5 @@ Downloads are saved under `~/Downloads/Yoinker` by default. Temporary artwork
 is removed after covers are embedded into the audio files.
 
 Use Yoinker only to download media you are authorized to access and save.
+Game download buttons are placeholders; Yoinker only opens the related SteamDB
+or Steam store page.

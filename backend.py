@@ -75,6 +75,24 @@ def main(options):
         results = lookup.search(options.get('query', ''))
         print('SEARCH:' + json.dumps(results), flush=True)
         print(f'{len(results)} songs found.' if results else 'No songs found. Try adding the artist name.', flush=True)
+    elif action in ('game-trending', 'game-search', 'game-detail'):
+        import games
+        if action == 'game-trending':
+            results = games.trending(options.get('page', 1))
+            print('GAMES:' + json.dumps(results), flush=True)
+            print('GAME_DEBUG:source=auto page=' + str(options.get('page', 1)) + ' results=' + str(len(results)) + ' covers=' + str(sum(bool(x.get('cover')) for x in results)), flush=True)
+        elif action == 'game-search':
+            results = games.search(options.get('query', ''))
+            print('GAMES:' + json.dumps(results), flush=True)
+            print('GAME_DEBUG:source=auto search results=' + str(len(results)), flush=True)
+        else:
+            result = games.detail(options.get('id'), options.get('source', 'steam'))
+            print('GAME_DETAIL:' + json.dumps(result), flush=True)
+        return 0
+    elif action == 'game-sources':
+        import games
+        print('GAME_SOURCES:' + json.dumps(games.source_matches(options.get('name', ''))), flush=True)
+        return 0
     elif action in ('download', 'formats'):
         url = options.get('url', '').strip()
         if options.get('selection') or url.startswith('spotify:') or 'open.spotify.com' in url:
