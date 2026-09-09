@@ -7,7 +7,7 @@ TV shows, and books.
 
 <p align="center">
   <img src="screenshots/games.png" alt="Games catalogue" height="360">
-  <img src="screenshots/tv.png" alt="TV catalogue" height="360">
+  <img src="screenshots/tv.png" alt="Movie details" height="360">
   <img src="screenshots/books.png" alt="Books catalogue" height="360">
 </p>
 
