@@ -1,4 +1,4 @@
-# Yoink
+# Yoink!
 
 A small Omarchy bar plugin for downloading media and browsing games, movies,
 TV shows, and books.
