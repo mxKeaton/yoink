@@ -429,7 +429,9 @@ def download(book, options=None):
         raise RuntimeError('No matching book was found on the configured source.')
 
     explicit_download = config.get('download_url') or config.get('file_url')
-    output_value = (options or {}).get('output') or config.get('output_dir') or str(_DEFAULT_OUTPUT)
+    saved_settings = settings.load()
+    output_value = ((options or {}).get('output') or saved_settings.get('book_download_path')
+                    or config.get('output_dir') or str(_DEFAULT_OUTPUT))
     output_dir = Path(str(output_value)).expanduser().absolute()
     errors = []
     try:

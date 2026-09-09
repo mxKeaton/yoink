@@ -9,6 +9,8 @@ from pathlib import Path
 from shlex import join
 from urllib.parse import urlsplit
 
+import settings
+
 
 def youtube_url(value):
     url = urlsplit(value)
@@ -64,7 +66,8 @@ def gui_command(options):
     qualities = ("Best", "2160", "1440", "1080", "720", "480") if mode == "Video" else ("0", "192K", "256K", "320K")
     if fmt not in formats or quality not in qualities:
         raise ValueError("Invalid format or quality selection.")
-    output = Path(options.get("output", "").strip() or str(Path.home() / "Downloads" / "Yoink" / mode)).expanduser().absolute()
+    kind = "video" if mode == "Video" else "audio"
+    output = Path(options.get("output", "").strip() or settings.download_path(kind)).expanduser().absolute()
     output.mkdir(parents=True, exist_ok=True)
     args = command(url, mode, output, fmt, quality, options.get("metadata", False), options.get("subtitles", False))
     return args[:1] + ["--newline", "--no-colors", "--progress"] + args[1:]
@@ -111,7 +114,7 @@ def main():
         fmt = choose("Container (merge/remux; auto keeps the source container)", ["auto", "mkv", "mp4"])
         subtitles = choose("Embed available English subtitles?", ["No", "Yes"]) == "Yes"
     metadata = choose("Embed metadata (--embed-metadata)?", ["No", "Yes"]) == "Yes"
-    default = Path.home() / "Downloads" / "Yoink" / mode
+    default = Path(settings.download_path("video" if mode == "Video" else "audio"))
     output = Path(input(f"Download directory [{default}]: ").strip() or default).expanduser().absolute()
     args = command(url, mode, output, fmt, quality, metadata, subtitles)
     print("\nCommand:\n" + join(args))

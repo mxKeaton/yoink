@@ -214,7 +214,7 @@ async def run(options):
         name, tracks = spotify.tracks_from_link(options['url'].strip())
     data = settings.load()
     order = source_order(source, data)
-    output = Path(options.get('output', '').strip() or str(Path.home() / 'Downloads' / 'Yoink' / 'Music')).expanduser().absolute() / safe_folder(name)
+    output = Path(options.get('output', '').strip() or settings.download_path('music', data)).expanduser().absolute() / safe_folder(name)
     output.mkdir(parents=True, exist_ok=True)
     config = make_config(data, output, quality, codec)
     catalogs = Catalogs(config, data)

@@ -1,5 +1,8 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+import download
 from download import command, youtube_url
 
 
@@ -27,6 +30,18 @@ class DownloadTests(unittest.TestCase):
         self.assertIn('--remux-video', args)
         self.assertIn('--embed-subs', args)
         self.assertNotIn('--extract-audio', args)
+
+    def test_gui_command_uses_configured_audio_path(self):
+        with patch.object(download.settings, 'download_path', return_value='/tmp/yoink-audio') as path:
+            args = download.gui_command({
+                'url': 'https://youtu.be/abc',
+                'mode': 'Audio',
+                'format': 'mp3',
+                'quality': '192K',
+                'output': '',
+            })
+        path.assert_called_once_with('audio')
+        self.assertEqual(args[args.index('--paths') + 1], '/tmp/yoink-audio')
 
 
 if __name__ == '__main__':

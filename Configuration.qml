@@ -9,8 +9,15 @@ Column {
   property bool busy: false
   property string pluginVersion: "unknown"
   property string platform: "spotify"
+  property string section: "services"
   property var saved: ({})
   property var edits: ({})
+  property var downloadDefinitions: [
+    ["audio_download_path", "Audio downloads", "~/Downloads/Yoink/Audio"],
+    ["music_download_path", "Music downloads", "~/Downloads/Yoink/Music"],
+    ["video_download_path", "Video downloads", "~/Downloads/Yoink/Video"],
+    ["book_download_path", "Book downloads", "~/Downloads/Yoink/Books"]
+  ]
   readonly property string qobuzMode: edits.qobuz_auth_mode || saved.qobuz_auth_mode || "password"
   signal requested(string action, var payload)
 
@@ -37,6 +44,29 @@ Column {
   Flow {
     width: parent.width
     spacing: Style.space(4)
+    Button {
+      text: "Services"
+      selected: root.section === "services"
+      enabled: !root.busy
+      focusable: true
+      onClicked: root.section = "services"
+    }
+    Button {
+      text: "Downloads"
+      selected: root.section === "downloads"
+      enabled: !root.busy
+      focusable: true
+      onClicked: root.section = "downloads"
+    }
+  }
+  Column {
+    id: serviceSettings
+    visible: root.section === "services"
+    width: parent.width
+    spacing: Style.space(10)
+  Flow {
+    width: parent.width
+    spacing: Style.space(4)
     Repeater {
       model: ["spotify", "qobuz", "deezer", "tidal", "youtube"]
       Button {
@@ -48,15 +78,6 @@ Column {
         onClicked: root.platform = modelData
       }
     }
-  }
-  Text {
-    width: parent.width
-    color: Color.foreground
-    font.family: Style.font.family
-    font.pixelSize: Style.font.bodySmall
-    opacity: 0.7
-    textFormat: Text.PlainText
-    text: "Yoink version " + root.pluginVersion
   }
   Text {
     width: parent.width
@@ -141,6 +162,57 @@ Column {
       enabled: !root.busy
       focusable: true
       onClicked: root.requested("config-forget", {platform: root.platform})
+    }
+  }
+  }
+  Column {
+    visible: root.section === "downloads"
+    width: parent.width
+    spacing: Style.space(10)
+    Text {
+      width: parent.width
+      color: Color.foreground
+      font.family: Style.font.family
+      font.pixelSize: Style.font.bodySmall
+      wrapMode: Text.Wrap
+      text: "Set the default folder for each download type. A path entered in the download form takes priority."
+    }
+    Repeater {
+      model: root.downloadDefinitions
+      Column {
+        required property var modelData
+        width: parent.width
+        spacing: Style.space(4)
+        Text {
+          text: modelData[1]
+          color: Color.foreground
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+        }
+        TextField {
+          width: parent.width
+          enabled: !root.busy
+          selectByMouse: true
+          text: root.edits[modelData[0]] !== undefined ? root.edits[modelData[0]] : root.saved[modelData[0]] || ""
+          placeholderText: modelData[2]
+          onTextEdited: {
+            const copy = Object.assign({}, root.edits)
+            copy[modelData[0]] = text
+            root.edits = copy
+          }
+        }
+      }
+    }
+    Flow {
+      width: parent.width
+      spacing: Style.space(6)
+      Button {
+        text: "Save Download Paths"
+        enabled: !root.busy
+        focusable: true
+        bordered: true
+        onClicked: root.requested("config-save", {values: Object.assign({}, root.edits)})
+      }
     }
   }
 }

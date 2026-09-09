@@ -9,7 +9,7 @@ Panel {
   ipcTarget: "denis.yoink"
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
-  readonly property string pluginVersion: "0.7.0"
+  readonly property string pluginVersion: "0.1"
 
   readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
@@ -247,7 +247,7 @@ Panel {
     root.logText = ""
     root.status = "Starting download…"
     const sourceLink = root.video ? videoLink.text : link.text
-    const outputPath = root.video ? videoDestination.text : destination.text
+    const outputPath = ""
     const options = {url: sourceLink, mode: mode, action: action,
       format: mode === "Video" ? videoFormat : audioFormat,
       quality: mode === "Video" ? videoQuality : audioQuality,
@@ -1084,14 +1084,6 @@ Panel {
               }
             }
           }
-          Label { text: "Save To" }
-          TextField {
-            id: destination
-            width: parent.width
-            placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoink/Music" : "~/Downloads/Yoink/Audio"
-            enabled: !root.workerRunning
-            selectByMouse: true
-          }
           Flow {
             width: parent.width; spacing: Style.space(6)
             Choice { text: root.searching || root.musicInput ? "Download Music" : "Download Audio"; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
@@ -1141,14 +1133,6 @@ Panel {
                 }
               }
             }
-            Label { text: "Save To" }
-            TextField {
-              id: videoDestination
-              width: parent.width
-              placeholderText: "~/Downloads/Yoink/Video"
-              enabled: !root.workerRunning
-              selectByMouse: true
-            }
             Flow {
               width: parent.width; spacing: Style.space(6)
               Choice { text: "Download Video"; enabled: !root.workerRunning && root.videoInputReady; onClicked: root.start("download") }
@@ -1194,6 +1178,25 @@ Panel {
               font.pixelSize: Style.font.bodySmall
             }
           }
+  Row {
+    width: parent.width
+
+    Label {
+      width: parent.width / 2
+      text: "Yoink version " + root.pluginVersion
+      horizontalAlignment: Text.AlignLeft
+      font.pixelSize: Math.max(8, Style.font.bodySmall * 0.8)
+      opacity: 0.7
+    }
+
+    Label {
+      width: parent.width / 2
+      text: "created by Demmel"
+      horizontalAlignment: Text.AlignRight
+      font.pixelSize: Math.max(8, Style.font.bodySmall * 0.8)
+      opacity: 0.7
+    }
+  }
         }
       }
     }

@@ -42,6 +42,23 @@ class SettingsTests(unittest.TestCase):
         settings.save_form({'spotify_client_id': 'new'})
         self.assertEqual(settings.load()['spotify_token'], {})
 
+    def test_download_paths_are_saved_and_resolved(self):
+        paths = {
+            'audio_download_path': str(Path(self.temp.name) / 'Audio'),
+            'music_download_path': str(Path(self.temp.name) / 'Music'),
+            'video_download_path': str(Path(self.temp.name) / 'Video'),
+            'book_download_path': str(Path(self.temp.name) / 'Books'),
+        }
+        settings.save_form(paths)
+        saved = settings.load()
+        self.assertEqual(settings.download_path('audio', saved), paths['audio_download_path'])
+        self.assertEqual(settings.download_path('music', saved), paths['music_download_path'])
+        self.assertEqual(settings.download_path('video', saved), paths['video_download_path'])
+        self.assertEqual(settings.download_path('books', saved), paths['book_download_path'])
+        self.assertTrue(all(key in settings.public_settings() for key in paths))
+        with self.assertRaises(ValueError):
+            settings.download_path('unknown', saved)
+
     def test_streamrip_config_credentials_and_caps(self):
         config = music.make_config({'qobuz_email': 'user', 'qobuz_password': 'hash', 'deezer_arl': 'cookie'}, Path(self.temp.name), 4, 'flac')
         self.assertEqual(config.session.qobuz.password_or_token, 'hash')

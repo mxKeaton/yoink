@@ -9,17 +9,41 @@ from pathlib import Path
 
 FIELDS = {
     'game_always_checked_urls',
+    'audio_download_path', 'music_download_path', 'video_download_path', 'book_download_path',
     'spotify_client_id', 'qobuz_email', 'qobuz_password', 'qobuz_user_id',
     'qobuz_token', 'qobuz_auth_mode', 'qobuz_app_id', 'qobuz_app_secret', 'deezer_arl', 'tidal_user_id', 'tidal_country_code',
     'tidal_access_token', 'tidal_refresh_token', 'tidal_token_expiry',
     'youtube_cookies',
 }
 SECRET_FIELDS = {'qobuz_app_secret', 'qobuz_password', 'qobuz_token', 'deezer_arl', 'tidal_access_token', 'tidal_refresh_token'}
+DOWNLOAD_PATH_FIELDS = {
+    'audio': 'audio_download_path',
+    'music': 'music_download_path',
+    'video': 'video_download_path',
+    'books': 'book_download_path',
+}
+DEFAULT_DOWNLOAD_PATHS = {
+    'audio': 'Audio',
+    'music': 'Music',
+    'video': 'Video',
+    'books': 'Books',
+}
 
 
 def qobuz_auth_mode(data):
     # Preserve the former token-login preference until the user selects a mode.
     return data.get('qobuz_auth_mode') or ('token' if data.get('qobuz_user_id') and data.get('qobuz_token') else 'password')
+
+
+def download_path(kind, data=None):
+    """Return a configured download path, falling back to Yoink's default."""
+    if kind not in DOWNLOAD_PATH_FIELDS:
+        raise ValueError('Unknown download path.')
+    values = load() if data is None else data
+    configured = str(values.get(DOWNLOAD_PATH_FIELDS[kind]) or '').strip()
+    if configured:
+        return str(Path(configured).expanduser())
+    return str(Path.home() / 'Downloads' / 'Yoink' / DEFAULT_DOWNLOAD_PATHS[kind])
 
 
 def directory():
