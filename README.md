@@ -1,6 +1,6 @@
 # Yoink!
 
-A small Omarchy bar plugin for downloading media and browsing games, movies,
+:pirate_flag: A small Omarchy bar plugin for downloading media and browsing games, movies,
 TV shows, and books.
 
 ## Install
@@ -14,8 +14,9 @@ bash install.sh
 
 ## What's Included
 
-- Music and video downloads. Configure music in the option panel.
-- Games catalogue with search and store/source links.
-- Movie and TV show catalogue with trending lists, combined search, and
-  streaming sources.
-- Book search with an optional download source.
+- Downloads music from various different sources!
+- Spotify and YT Playlist downloads!
+- YT video downlaods!
+- Games catalogue with store and source links!
+- Movie and TV show catalogue with streaming source links!
+- Book and article downloads!
