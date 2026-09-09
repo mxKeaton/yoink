@@ -31,6 +31,20 @@ class BackendStartupTests(unittest.TestCase):
         self.assertEqual(links_payload, links)
         self.assertEqual(events, ['detail', 'links'])
 
+    def test_movie_detail_emits_details_before_sources(self):
+        result = {'id': '1204680', 'name': 'Coyote vs. Acme', 'summary': 'Description'}
+        sources = [{'label': 'Source 1', 'url': 'https://media.example/movie.m3u8'}]
+        events = []
+        output = io.StringIO()
+        with patch('movies.detail', side_effect=lambda *args: events.append('detail') or result), \
+             patch('movies.source_links', side_effect=lambda movie_id: events.append('sources') or sources), \
+             redirect_stdout(output):
+            self.assertEqual(backend.main({'action': 'movie-detail', 'id': '1204680'}), 0)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(json.loads(lines[0].split('MOVIE_DETAIL:', 1)[1]), result)
+        self.assertEqual(json.loads(lines[1].split('MOVIE_SOURCES:', 1)[1]), sources)
+        self.assertEqual(events, ['detail', 'sources'])
+
     def test_connect_saves_pending_fields_first(self):
         with patch.object(backend.settings, 'save_form') as save, \
              patch.object(backend, 'snapshot'), patch('spotify.connect') as connect:

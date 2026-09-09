@@ -37,6 +37,8 @@ class GameCatalogueTests(unittest.TestCase):
         self.assertIn('Yoink version " + root.pluginVersion', configuration)
         self.assertIn('text: "Loading download options"', bar_widget)
         self.assertIn('text: "Downloads will continue in the background"', bar_widget)
+        self.assertIn('text: "Movies"', bar_widget)
+        self.assertIn('action in (\'movie-trending\', \'movie-search\', \'movie-detail\', \'movie-sources\')', (project / 'backend.py').read_text())
         self.assertNotIn('Game details loaded.', bar_widget)
 
         loading_button = bar_widget.index('text: "Loading download options"')
