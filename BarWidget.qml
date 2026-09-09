@@ -9,7 +9,7 @@ Panel {
   ipcTarget: "denis.yoink"
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
-  readonly property string pluginVersion: "0.4.2"
+  readonly property string pluginVersion: "0.5.4"
 
   readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
@@ -24,7 +24,9 @@ Panel {
   property var selectedGame: null
   property string gameStatus: "Browse trending games or search the catalogue."
   property var gameSources: []
+  property var gameStores: []
   property bool gameSourcesLoading: false
+  property bool gameDetailsLoaded: false
   property var bookResults: []
   property var selectedBook: null
   property string bookStatus: "Search the Library Genesis catalogue."
@@ -60,7 +62,7 @@ Panel {
 
   function sourceLabel(url) {
     const host = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase()
-    const known = {"steamrip.com": "Steamrip", "ankergames.net": "Ankergame", "astralgames.net": "Astralgames"}
+    const known = {"steamrip.com": "SteamRIP", "ankergames.net": "AnkerGames", "astralgames.net": "AstralGames"}
     if (known[host]) return known[host]
     const name = host.split(".")[0]
     return name.replace(/[-_]+/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
@@ -69,6 +71,13 @@ Panel {
   function bookDownloadLabel() {
     const extension = String(root.selectedBook && root.selectedBook.extension || "").replace(/^\./, "").toUpperCase()
     return extension ? "Download " + extension : "Download"
+  }
+
+  function gameStoreUrl(storeId) {
+    for (var index = 0; index < root.gameStores.length; index++) {
+      if (root.gameStores[index].id === storeId) return root.gameStores[index].url
+    }
+    return ""
   }
 
   function appendLog(line) {
@@ -88,19 +97,26 @@ Panel {
       try {
         const details = JSON.parse(line.slice(12))
         root.selectedGame = details
+        root.gameDetailsLoaded = true
         if (Array.isArray(details.gameSources)) {
           root.gameSources = details.gameSources
+          root.gameStores = Array.isArray(details.gameStores) ? details.gameStores : []
           root.gameSourcesLoading = false
         } else {
           root.gameSourcesLoading = true
           gameSourcesTimer.restart()
         }
-        root.gameStatus = "Game details loaded."
-      } catch (e) { root.gameStatus = "Could not read game details." }
+      } catch (e) { root.gameDetailsLoaded = false; root.gameStatus = "Could not read game details." }
       return
     }
     if (line.indexOf("GAME_SOURCES:") === 0) {
-      try { root.gameSources = JSON.parse(line.slice(13)); root.gameSourcesLoading = false; root.gameStatus = root.gameSources.length ? "Matching game websites found." : "No configured website matched this title." } catch (e) { root.gameSources = []; root.gameSourcesLoading = false }
+      try {
+        const payload = JSON.parse(line.slice(13))
+        root.gameSources = Array.isArray(payload) ? payload : (Array.isArray(payload.sources) ? payload.sources : [])
+        root.gameStores = Array.isArray(payload) ? [] : (Array.isArray(payload.stores) ? payload.stores : [])
+        root.gameSourcesLoading = false
+        root.gameStatus = root.gameSources.length || root.gameStores.length ? "Matching game websites found." : "No configured website matched this title."
+      } catch (e) { root.gameSources = []; root.gameStores = []; root.gameSourcesLoading = false }
       return
     }
     if (line.indexOf("BOOKS:") === 0) {
@@ -174,7 +190,9 @@ Panel {
     bookHasNext = false
     bookLanguage = "English"
     gameSources = []
+    gameStores = []
     gameSourcesLoading = false
+    gameDetailsLoaded = false
     logText = ""
     status = "Paste a link or search for a song to get started."
     cancelling = false
@@ -205,7 +223,9 @@ Panel {
 
   function gameTask(action, options) {
     if (root.workerRunning || !root.downloadService) return
-    root.gameStatus = action === "game-search" ? "Searching games…" : action === "game-sources" ? "Checking game websites…" : "Loading game catalogue…"
+    root.gameStatus = action === "game-search" ? "Searching games…"
+      : action === "game-trending" ? "Loading game catalogue…"
+      : "Loading download options"
     root.runTask(action, options)
   }
 
@@ -232,7 +252,9 @@ Panel {
     if (!text) return
     root.selectedGame = null
     root.gameSources = []
+    root.gameStores = []
     root.gameSourcesLoading = false
+    root.gameDetailsLoaded = false
     root.gamePage = 1
     root.gameBrowsingTrending = false
     root.gameTask("game-search", {query: text})
@@ -269,6 +291,7 @@ Panel {
         return
       }
       if (completedAction === "config-load" && code === 0) return
+      if (completedAction === "game-detail" && code !== 0) root.gameSourcesLoading = false
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? (completedAction.indexOf("book-") === 0 ? root.bookStatus : "Failed — see details below.")
@@ -620,14 +643,14 @@ Panel {
                     font.pixelSize: Style.font.bodySmall
                     color: cardMouse.containsMouse ? Color.background : Color.foreground
                   }
-                  MouseArea { id: cardMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedGame = modelData; root.gameSources = []; root.gameSourcesLoading = false; root.gameTask("game-detail", {id: modelData.id, source: modelData.source}) } }
+                  MouseArea { id: cardMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedGame = modelData; root.gameSources = []; root.gameStores = []; root.gameSourcesLoading = true; root.gameDetailsLoaded = false; root.gameTask("game-detail", {id: modelData.id, source: modelData.source}) } }
                 }
               }
             }
             Column {
               visible: root.selectedGame !== null
               width: parent.width; spacing: Style.space(8)
-              Button { text: "← Back to games"; focusable: true; onClicked: root.selectedGame = null }
+              Button { text: "← Back to games"; focusable: true; onClicked: { root.selectedGame = null; root.gameDetailsLoaded = false; root.gameSources = []; root.gameStores = []; root.gameSourcesLoading = false } }
               Image {
                 id: detailCoverImage
                 property int fallbackIndex: 0
@@ -644,17 +667,29 @@ Panel {
                 }
               }
               Label { text: root.selectedGame ? root.selectedGame.name : ""; font.pixelSize: Style.font.subtitle }
-              Label { text: root.selectedGame ? root.selectedGame.summary : ""; width: parent.width; font.pixelSize: Style.font.bodySmall }
+              Label {
+                visible: root.gameDetailsLoaded
+                text: root.selectedGame && root.selectedGame.summary ? root.selectedGame.summary : "No description available."
+                width: parent.width
+                font.pixelSize: Style.font.bodySmall
+              }
               Label { text: root.selectedGame ? ((root.selectedGame.genres || []).join(" · ") + (root.selectedGame.rating ? "\nRating " + root.selectedGame.rating + "/100" : "")) : ""; font.pixelSize: Style.font.bodySmall }
               Flow {
                 spacing: Style.space(6)
                 Repeater {
                   model: root.gameSources
-                  Choice { required property var modelData; text: "Open " + root.sourceLabel(modelData.base); onClicked: Quickshell.execDetached(["omarchy-launch-browser", modelData.url]) }
+                  Choice {
+                    required property var modelData
+                    text: root.sourceLabel(modelData.base) + (modelData.timeout ? " \uf252" : "")
+                    foreground: modelData.timeout ? Color.urgent : Color.foreground
+                    accent: modelData.timeout ? Color.urgent : Color.accent
+                    onClicked: Quickshell.execDetached(["omarchy-launch-browser", modelData.url])
+                  }
                 }
-                Choice { text: "Open Steam"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
+                Choice { visible: root.gameSourcesLoading; text: "Loading download options"; enabled: false }
+                Choice { visible: root.gameDetailsLoaded && !root.gameSourcesLoading; text: "Steam"; onClicked: if (root.selectedGame) Quickshell.execDetached(["omarchy-launch-browser", "https://store.steampowered.com/app/" + root.selectedGame.id]) }
+                Choice { visible: root.gameDetailsLoaded && !root.gameSourcesLoading && root.gameStoreUrl("gog") !== ""; text: "GoG"; onClicked: { const url = root.gameStoreUrl("gog"); if (url) Quickshell.execDetached(["omarchy-launch-browser", url]) } }
               }
-              Label { visible: root.gameSourcesLoading; text: "Checking configured game websites…"; font.pixelSize: Style.font.bodySmall }
             }
           }
           Column {
@@ -893,11 +928,11 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
           Label {
-            visible: !root.bookPageLoading
+            visible: !root.configuring && !root.games
             width: parent.width
-            text: root.books ? root.bookStatus : root.games ? root.gameStatus : root.status
+            text: "Downloads will continue in the background"
+            font.pixelSize: Style.font.bodySmall
           }
-          Label { visible: root.operationRunning; width: parent.width; text: "You can close this popup while the operation continues."; font.pixelSize: Style.font.bodySmall }
           Flickable {
             visible: root.logText !== ""
             width: parent.width

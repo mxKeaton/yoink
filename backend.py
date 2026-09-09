@@ -85,8 +85,8 @@ def main(options):
             print('GAMES:' + json.dumps(results), flush=True)
         else:
             result = games.detail(options.get('id'), options.get('source', 'steam'))
-            result['gameSources'] = games.source_links(result.get('name', ''))
             print('GAME_DETAIL:' + json.dumps(result), flush=True)
+            print('GAME_SOURCES:' + json.dumps(games.game_links(result.get('name', ''))), flush=True)
         return 0
     elif action in ('book-search', 'book-detail', 'book-download'):
         try:
@@ -108,7 +108,7 @@ def main(options):
             return 1
     elif action == 'game-sources':
         import games
-        print('GAME_SOURCES:' + json.dumps(games.source_links(options.get('name', ''))), flush=True)
+        print('GAME_SOURCES:' + json.dumps(games.game_links(options.get('name', ''))), flush=True)
         return 0
     elif action in ('download', 'formats'):
         url = options.get('url', '').strip()

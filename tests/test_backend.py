@@ -14,16 +14,22 @@ import backend
 
 
 class BackendStartupTests(unittest.TestCase):
-    def test_game_detail_includes_configured_source_links(self):
+    def test_game_detail_includes_configured_source_and_store_links(self):
         result = {'id': '42', 'name': 'How To Fish'}
-        sources = [{'base': 'https://steamrip.com', 'url': 'https://steamrip.com/how-to-fish', 'valid': False}]
+        links = {'sources': [{'base': 'https://steamrip.com', 'url': 'https://steamrip.com/how-to-fish', 'valid': False}],
+                 'stores': [{'id': 'gog', 'url': 'https://www.gog.com/en/game/how-to-fish', 'valid': True}]}
+        events = []
         output = io.StringIO()
-        with patch('games.detail', return_value=result.copy()), \
-             patch('games.source_links', return_value=sources), \
+        with patch('games.detail', side_effect=lambda *args: events.append('detail') or result.copy()), \
+             patch('games.game_links', side_effect=lambda name: events.append('links') or links), \
              redirect_stdout(output):
             self.assertEqual(backend.main({'action': 'game-detail', 'id': '42'}), 0)
-        payload = json.loads(output.getvalue().split('GAME_DETAIL:', 1)[1])
-        self.assertEqual(payload['gameSources'], sources)
+        lines = output.getvalue().splitlines()
+        detail_payload = json.loads(lines[0].split('GAME_DETAIL:', 1)[1])
+        links_payload = json.loads(lines[1].split('GAME_SOURCES:', 1)[1])
+        self.assertEqual(detail_payload, result)
+        self.assertEqual(links_payload, links)
+        self.assertEqual(events, ['detail', 'links'])
 
     def test_connect_saves_pending_fields_first(self):
         with patch.object(backend.settings, 'save_form') as save, \

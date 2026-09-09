@@ -7,10 +7,11 @@ Download controls intentionally remain placeholders.
 import json
 import html
 import re
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urljoin, quote_plus, urlparse
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import settings
@@ -19,48 +20,10 @@ PAGE_SIZE = 18
 _STEAM_DETAILS_CACHE = {}
 _STEAM_DETAILS_CACHE_TTL = 300
 _STEAM_DETAILS_SUCCESS_TTL = 3600
-_ANKER_LOOKUP_CACHE = {}
-_ANKER_LOOKUP_CACHE_TTL = 300
-
-
-def _ankergames_reader_url(url):
-    """Build a Jina Reader URL for an AnkerGames page.
-
-    AnkerGames serves a Cloudflare challenge to the lightweight HTTP client
-    used by the plugin.  The reader returns the same public page as markdown,
-    which lets us verify the page title without treating every guessed slug as
-    a valid game.
-    """
-    parsed = urlparse(url)
-    path = parsed.path or '/'
-    query = ('?' + parsed.query) if parsed.query else ''
-    return 'https://r.jina.ai/http://' + parsed.netloc + path + query
-
-
-def _ankergames_reader_match(name, url):
-    """Validate an AnkerGames URL through its public page title."""
-    key = (str(name).strip().lower(), url)
-    now = time.time()
-    cached = _ANKER_LOOKUP_CACHE.get(key)
-    if cached and now - cached[0] < _ANKER_LOOKUP_CACHE_TTL:
-        return cached[1]
-
-    expected = re.sub(r'[^a-z0-9]+', ' ', str(name).lower()).strip()
-    valid = False
-    if expected:
-        try:
-            request = Request(_ankergames_reader_url(url), headers={'User-Agent': 'Yoink/0.4'})
-            with urlopen(request, timeout=8) as response:
-                content = response.read(131072).decode('utf-8', 'ignore')
-            warning = re.search(r'^Warning:\s*Target URL returned error', content, re.IGNORECASE | re.MULTILINE)
-            title = re.search(r'^Title:\s*(.+)$', content, re.IGNORECASE | re.MULTILINE)
-            title_text = title.group(1).strip() if title else ''
-            normalized_title = re.sub(r'[^a-z0-9]+', ' ', title_text.lower()).strip()
-            valid = not warning and expected in normalized_title
-        except Exception:
-            valid = False
-    _ANKER_LOOKUP_CACHE[key] = (now, valid)
-    return valid
+_SOURCE_REQUEST_TIMEOUT = 2.0
+_STORE_LOOKUP_CACHE = {}
+_STORE_LOOKUP_CACHE_TTL = 300
+_STORE_REQUEST_TIMEOUT = 2.5
 
 
 def _steam_detail(appid):
@@ -106,34 +69,43 @@ def source_urls():
     return combined
 
 def source_matches(name):
-    """Return configured sites whose simple title slug responds successfully."""
+    """Return configured sites whose direct game route can be opened.
+
+    Each configured source gets one short direct request. A timeout remains
+    visible so the user can still try the route in their normal browser
+    session; HTTP errors and known error pages stay hidden.
+    """
     slug = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')
     if not slug:
         return []
 
     def candidates(base):
         encoded_title = quote_plus(str(name).lower())
-        if 'ankergames.net' in base.lower():
-            # AnkerGames uses /game/<slug>. Its edge returns a Cloudflare
-            # challenge to the lightweight HTTP client, so a reader
-            # validation is done below when the normal request cannot be
-            # inspected.
+        host = base.lower()
+        if 'steamrip.com' in host:
+            return (urljoin(base + '/', slug + '-free-download/'),)
+        if 'ankergames.net' in host:
+            return (urljoin(base + '/game/', slug),)
+        if 'astralgames.net' in host:
             return (urljoin(base + '/game/', slug),)
         return (urljoin(base + '/', slug), urljoin(base + '/', encoded_title),
                 urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
 
     def check(base):
-        is_ankergames = 'ankergames.net' in base.lower()
         possible_urls = candidates(base)
         match_url = possible_urls[0]
         valid = False
+        timed_out = False
         for url in possible_urls:
             try:
                 request = Request(url, headers={'User-Agent': 'Yoink/0.4'})
-                with urlopen(request, timeout=4) as response:
+                with urlopen(request, timeout=_SOURCE_REQUEST_TIMEOUT) as response:
                     final_url = response.geturl() or url
                     body = response.read(65536).decode('utf-8', 'ignore').lower()
                     final_path = urlparse(final_url).path.rstrip('/').lower()
+                    if response.status in (408, 504, 524):
+                        timed_out = True
+                        continue
                     error_url = (final_path in ('', '/') or any(token in final_path for token in ('/error', '/404', 'not-found', 'page-not-found')))
                     error_body = any(token in body for token in (
                         'page not found', '404 not found', 'error occurred', 'does not exist',
@@ -141,46 +113,173 @@ def source_matches(name):
                     if 200 <= response.status < 400 and not error_url and not error_body:
                         match_url, valid = final_url, True
                         break
-            except HTTPError:
+            except HTTPError as error:
+                if getattr(error, 'code', None) in (408, 504, 524):
+                    timed_out = True
+                continue
+            except (socket.timeout, TimeoutError):
+                timed_out = True
+                continue
+            except URLError as error:
+                reason = getattr(error, 'reason', None)
+                if isinstance(reason, (socket.timeout, TimeoutError)):
+                    timed_out = True
                 continue
             except Exception:
                 continue
-        if not valid and is_ankergames and _ankergames_reader_match(name, match_url):
-            # Keep the original HTTPS page as the button target.  The reader
-            # is used only to verify that the title exists; users still open
-            # the source page themselves in their browser session.
-            valid = True
-        return {'base': base, 'url': match_url, 'valid': valid}
+        return {'base': base, 'url': match_url, 'valid': valid, 'timeout': not valid and timed_out}
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(check, source_urls()))
-    # Do not expose guessed error routes as clickable source buttons.  A
-    # number of game sites return a branded 404 page with HTTP 200, so the
-    # per-page checks above are required before a route is considered usable.
-    return [result for result in results if result['valid']]
+    # Do not expose guessed error routes as clickable source buttons. Timeout
+    # entries are deliberately retained so the browser can try the source.
+    return [result for result in results if result['valid'] or result['timeout']]
 
 
 def source_links(name):
-    """Return one browser link for every configured game source.
+    """Return only configured game sources with a validated page URL."""
+    return source_matches(name)
 
-    Source probing is best-effort: anti-bot pages and transient network
-    failures must not hide a source the user explicitly configured. Prefer a
-    validated URL when one was found, then fall back to the site's canonical
-    slug route so the browser can use the user's normal session.
-    """
-    slug = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')
-    if not slug:
-        return []
 
-    matches = {item['base']: item for item in source_matches(name)}
-    links = []
-    for base in source_urls():
-        item = matches.get(base)
-        if item:
-            links.append(item)
+def _store_title(value):
+    return re.sub(r'[^a-z0-9]+', ' ', html.unescape(str(value or '')).lower()).strip()
+
+
+def _store_slug_matches(name, value):
+    expected = _store_title(name).split()
+    actual = _store_title(value).split()
+    return bool(expected) and all(token in actual for token in expected)
+
+
+def _store_context_matches(name, context):
+    expected = _store_title(name)
+    if not expected:
+        return False
+    context = html.unescape(context.replace('\\/', '/'))
+    for match in re.finditer(r'"(?:name|title|displayName)"\s*:\s*"((?:\\.|[^"\\])*)"', context, re.IGNORECASE):
+        value = match.group(1).replace('\\"', '"')
+        if expected in _store_title(value):
+            return True
+    for fragment in re.findall(r'>\s*([^<>]{2,160})\s*<', context):
+        if expected in _store_title(fragment):
+            return True
+    return False
+
+
+def _store_records(value):
+    if isinstance(value, dict):
+        if any(key in value for key in ('title', 'name', 'displayName', 'productName', 'productSlug', 'urlSlug', 'slug', 'storeLink')):
+            yield value
+        for nested in value.values():
+            yield from _store_records(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _store_records(nested)
+
+
+def _store_record_matches(name, record):
+    expected = _store_title(name)
+    for key in ('title', 'name', 'displayName', 'productName'):
+        value = record.get(key)
+        if isinstance(value, str) and expected and expected in _store_title(value):
+            return True
+    return False
+
+
+def _gog_record_url(record):
+    for key in ('storeLink', 'productUrl', 'url', 'link'):
+        value = record.get(key)
+        if not isinstance(value, str) or not value:
             continue
-        url = urljoin(base + '/game/', slug) if 'ankergames.net' in base.lower() else urljoin(base + '/', slug)
-        links.append({'base': base, 'url': url, 'valid': False})
-    return links
+        candidate = urljoin('https://www.gog.com/', value)
+        parsed = urlparse(candidate)
+        if parsed.netloc.lower().endswith('gog.com') and '/game/' in parsed.path.lower():
+            return candidate
+    for key in ('productSlug', 'urlSlug', 'slug'):
+        value = record.get(key)
+        if not isinstance(value, str) or not value:
+            continue
+        slug = value.strip('/')
+        if not slug or '/' in slug or slug.startswith(('http:', 'https:')):
+            continue
+        return 'https://www.gog.com/en/game/' + quote(slug, safe='_-.')
+    return ''
+
+
+def _gog_api_lookup(name, api_url):
+    """Return (reachable, matching product URL) for the GoG catalog API."""
+    try:
+        request = Request(api_url, headers={'User-Agent': 'Yoink/0.4', 'Accept': 'application/json'})
+        with urlopen(request, timeout=_STORE_REQUEST_TIMEOUT) as response:
+            if not 200 <= response.status < 400:
+                return False, ''
+            payload = json.loads(response.read(262144).decode('utf-8', 'ignore'))
+        for record in _store_records(payload):
+            if _store_record_matches(name, record):
+                product_url = _gog_record_url(record)
+                if product_url:
+                    return True, product_url
+        return True, ''
+    except Exception:
+        return False, ''
+
+
+def _gog_product_url(name, body, search_url):
+    body = body.replace('\\/', '/')
+    pattern = r'''(?:(?:https?:)?//(?:www\.)?gog\.com)?/(?:[a-z]{2}/)?game/[^\"'<>\s]+'''
+    for match in re.finditer(pattern, body, re.IGNORECASE):
+        candidate = html.unescape(match.group(0)).rstrip('.,;)')
+        candidate = urljoin(search_url, candidate)
+        parsed = urlparse(candidate)
+        if not parsed.netloc.lower().endswith('gog.com'):
+            continue
+        path_parts = [part for part in parsed.path.split('/') if part]
+        slug = path_parts[-1] if path_parts else ''
+        context = body[max(0, match.start() - 900):match.end() + 900]
+        if _store_slug_matches(name, slug) or _store_context_matches(name, context):
+            return candidate
+    return ''
+
+
+def store_links(name):
+    """Return a direct GoG product page when its catalog matches a title."""
+    title = str(name or '').strip()
+    key = title.lower()
+    now = time.time()
+    cached = _STORE_LOOKUP_CACHE.get(key)
+    if cached and now - cached[0] < _STORE_LOOKUP_CACHE_TTL:
+        return list(cached[1])
+    query = quote_plus(title)
+    search_url = 'https://www.gog.com/en/games?query=' + query
+    api_url = 'https://catalog.gog.com/v1/catalog?query=like%3A' + quote(title, safe='') + '&limit=20&productType=in%3Agame%2Cpack&countryCode=US&locale=en-US&currencyCode=USD'
+    api_reachable, product_url = _gog_api_lookup(title, api_url)
+    if api_reachable:
+        matches = [{'id': 'gog', 'url': product_url, 'valid': True}] if product_url else []
+    else:
+        matches = []
+        try:
+            request = Request(search_url, headers={'User-Agent': 'Yoink/0.4'})
+            with urlopen(request, timeout=_STORE_REQUEST_TIMEOUT) as response:
+                final_url = response.geturl() or search_url
+                body = response.read(131072).decode('utf-8', 'ignore')
+                final_path = urlparse(final_url).path.rstrip('/').lower()
+                error_page = final_path in ('', '/') or any(token in final_path for token in ('/error', '/404', 'not-found', 'page-not-found'))
+                error_body = any(token in body.lower() for token in ('page not found', '404 not found', 'error occurred', 'does not exist'))
+                if 200 <= response.status < 400 and not error_page and not error_body:
+                    product_url = _gog_product_url(title, body, final_url)
+                    if product_url:
+                        matches = [{'id': 'gog', 'url': product_url, 'valid': True}]
+        except Exception:
+            pass
+    _STORE_LOOKUP_CACHE[key] = (now, matches)
+    return matches
+
+
+def game_links(name):
+    """Resolve configured download sources and official store pages together."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        source_future = pool.submit(source_links, name)
+        store_future = pool.submit(store_links, name)
+        return {'sources': source_future.result(), 'stores': store_future.result()}
 
 
 def _json(url, data=None, headers=None):
@@ -227,7 +326,7 @@ def _game(item, source='steam'):
         detail_fallbacks = [header, header_alt, capsule, capsule_alt]
     backup_cover = ('https://cdn.cloudflare.steamstatic.com/steam/apps/' + steam_appid + '/library_600x900.jpg') if steam_appid.isdigit() else ''
     return {'id': identity, 'name': item.get('name', 'Untitled'),
-            'summary': item.get('summary') or item.get('short_description') or 'No description available.',
+            'summary': item.get('summary') or item.get('short_description') or '',
             'cover': cover, 'release': release, 'rating': round(float(item.get('rating') or 0)),
             'genres': [x for x in genres if x], 'platforms': [x for x in platforms if x], 'source': source,
             'steamAppId': steam_appid, 'backupCover': backup_cover,
@@ -309,7 +408,7 @@ def _sgdb_data(value):
 
 
 def _sgdb_game(item):
-    return _game({'id': item.get('id'), 'name': item.get('name'), 'summary': item.get('genres', []) and 'SteamGridDB game',
+    return _game({'id': item.get('id'), 'name': item.get('name'),
                   'appid': item.get('steam_appid')}, 'steamgriddb')
 
 
