@@ -80,6 +80,14 @@ class GameCatalogueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             games.search('')
 
+    def test_source_urls_use_defaults_without_settings(self):
+        with patch.object(games.settings, 'load', return_value={}):
+            self.assertEqual(games.source_urls(), [
+                'https://steamrip.com',
+                'https://ankergames.net',
+                'https://astralgames.net',
+            ])
+
     def test_source_timeout_keeps_a_browser_button(self):
         base = 'https://steamrip.com'
         with patch.object(games.settings, 'load', return_value={'game_always_checked_urls': [base]}), \

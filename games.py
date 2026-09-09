@@ -59,7 +59,9 @@ def source_urls():
     # game_always_checked_urls is intentionally consumed only here. It can be
     # maintained directly in settings.json while remaining absent from the
     # Games configuration controls.
-    predefined = [str(value).strip() for value in read_list(saved.get('game_always_checked_urls', []))]
+    configured_value = saved.get('game_always_checked_urls')
+    raw_urls = settings.DEFAULT_GAME_SOURCE_URLS if configured_value is None else read_list(configured_value)
+    predefined = [str(value).strip() for value in raw_urls]
     configured = []
     combined = []
     for value in predefined + configured:

@@ -28,6 +28,11 @@ DEFAULT_DOWNLOAD_PATHS = {
     'video': 'Video',
     'books': 'Books',
 }
+DEFAULT_GAME_SOURCE_URLS = (
+    'https://steamrip.com',
+    'https://ankergames.net',
+    'https://astralgames.net',
+)
 
 
 def qobuz_auth_mode(data):
