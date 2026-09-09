@@ -19,6 +19,48 @@ PAGE_SIZE = 18
 _STEAM_DETAILS_CACHE = {}
 _STEAM_DETAILS_CACHE_TTL = 300
 _STEAM_DETAILS_SUCCESS_TTL = 3600
+_ANKER_LOOKUP_CACHE = {}
+_ANKER_LOOKUP_CACHE_TTL = 300
+
+
+def _ankergames_reader_url(url):
+    """Build a Jina Reader URL for an AnkerGames page.
+
+    AnkerGames serves a Cloudflare challenge to the lightweight HTTP client
+    used by the plugin.  The reader returns the same public page as markdown,
+    which lets us verify the page title without treating every guessed slug as
+    a valid game.
+    """
+    parsed = urlparse(url)
+    path = parsed.path or '/'
+    query = ('?' + parsed.query) if parsed.query else ''
+    return 'https://r.jina.ai/http://' + parsed.netloc + path + query
+
+
+def _ankergames_reader_match(name, url):
+    """Validate an AnkerGames URL through its public page title."""
+    key = (str(name).strip().lower(), url)
+    now = time.time()
+    cached = _ANKER_LOOKUP_CACHE.get(key)
+    if cached and now - cached[0] < _ANKER_LOOKUP_CACHE_TTL:
+        return cached[1]
+
+    expected = re.sub(r'[^a-z0-9]+', ' ', str(name).lower()).strip()
+    valid = False
+    if expected:
+        try:
+            request = Request(_ankergames_reader_url(url), headers={'User-Agent': 'Yoink/0.4'})
+            with urlopen(request, timeout=8) as response:
+                content = response.read(131072).decode('utf-8', 'ignore')
+            warning = re.search(r'^Warning:\s*Target URL returned error', content, re.IGNORECASE | re.MULTILINE)
+            title = re.search(r'^Title:\s*(.+)$', content, re.IGNORECASE | re.MULTILINE)
+            title_text = title.group(1).strip() if title else ''
+            normalized_title = re.sub(r'[^a-z0-9]+', ' ', title_text.lower()).strip()
+            valid = not warning and expected in normalized_title
+        except Exception:
+            valid = False
+    _ANKER_LOOKUP_CACHE[key] = (now, valid)
+    return valid
 
 
 def _steam_detail(appid):
@@ -70,10 +112,12 @@ def source_matches(name):
         return []
     def check(base):
         encoded_title = quote_plus(str(name).lower())
-        if 'ankergames.net' in base.lower():
-            # Ankergames uses /game/<slug> and currently returns 403 to
-            # non-browser clients even for real pages.
-            candidates = (urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
+        is_ankergames = 'ankergames.net' in base.lower()
+        if is_ankergames:
+            # AnkerGames uses /game/<slug>.  Its edge returns a Cloudflare
+            # challenge to the direct request, so a reader validation is done
+            # below when the normal request cannot be inspected.
+            candidates = (urljoin(base + '/game/', slug),)
         else:
             candidates = (urljoin(base + '/', slug), urljoin(base + '/', encoded_title),
                           urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
@@ -87,15 +131,21 @@ def source_matches(name):
                     body = response.read(65536).decode('utf-8', 'ignore').lower()
                     final_path = urlparse(final_url).path.rstrip('/').lower()
                     error_url = (final_path in ('', '/') or any(token in final_path for token in ('/error', '/404', 'not-found', 'page-not-found')))
-                    error_body = any(token in body for token in ('page not found', '404 not found', 'error occurred', 'does not exist'))
+                    error_body = any(token in body for token in (
+                        'page not found', '404 not found', 'error occurred', 'does not exist',
+                        'just a moment', 'enable javascript and cookies', 'cf-chl-'))
                     if 200 <= response.status < 400 and not error_url and not error_body:
                         match_url, valid = final_url, True
                         break
-            except HTTPError as error:
-                if error.code == 403 and 'ankergames.net' in base.lower():
-                    return {'base': base, 'url': url, 'valid': True}
+            except HTTPError:
+                continue
             except Exception:
                 continue
+        if not valid and is_ankergames and _ankergames_reader_match(name, match_url):
+            # Keep the original HTTPS page as the button target.  The reader
+            # is used only to verify that the title exists; users still open
+            # the source page themselves in their browser session.
+            valid = True
         return {'base': base, 'url': match_url, 'valid': valid}
     with ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(check, source_urls()))

@@ -14,6 +14,7 @@ Panel {
   readonly property bool workerRunning: downloadService ? downloadService.running : false
 
   property bool configuring: false
+  property bool video: false
   property bool games: false
   property var gameResults: []
   property var selectedGame: null
@@ -29,11 +30,12 @@ Panel {
   property var selectedSong: null
   readonly property bool musicInput: searching ? selectedSong !== null : spotifyLink
   readonly property bool inputReady: searching ? selectedSong !== null : link.text.trim() !== ""
+  readonly property bool videoInputReady: videoLink.text.trim() !== "" && !spotifyVideoLink
   property string musicSource: "qobuz"
   property string musicCodec: "original"
   property int musicQuality: 3
   readonly property bool spotifyLink: link.text.indexOf("open.spotify.com") !== -1 || link.text.indexOf("spotify:") === 0
-  property string mode: "Video"
+  property string mode: "Audio"
   property string videoFormat: "auto"
   property string audioFormat: "best"
   property string videoQuality: "Best"
@@ -42,6 +44,7 @@ Panel {
   property string logText: ""
   property bool cancelling: false
   property string action: "download"
+  readonly property bool spotifyVideoLink: videoLink.text.indexOf("open.spotify.com") !== -1 || videoLink.text.indexOf("spotify:") === 0
 
   function sourceLabel(url) {
     const name = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
@@ -84,6 +87,7 @@ Panel {
   function clearDownload() {
     if (root.workerRunning) return
     link.text = ""
+    videoLink.text = ""
     query.text = ""
     searchResults = []
     selectedSong = null
@@ -97,6 +101,7 @@ Panel {
     status = "Paste a link or search for a song to get started."
     cancelling = false
     configuring = false
+    video = false
     if (root.downloadService) root.downloadService.clearResult()
     scroll.contentY = 0
     if (searching) query.forceActiveFocus(); else link.forceActiveFocus()
@@ -108,10 +113,12 @@ Panel {
     root.cancelling = false
     root.logText = ""
     root.status = "Starting download…"
-    const options = {url: link.text, mode: mode, action: action,
+    const sourceLink = root.video ? videoLink.text : link.text
+    const outputPath = root.video ? videoDestination.text : destination.text
+    const options = {url: sourceLink, mode: mode, action: action,
       format: mode === "Video" ? videoFormat : audioFormat,
       quality: mode === "Video" ? videoQuality : audioQuality,
-      output: destination.text,
+      output: outputPath,
       selection: searching ? selectedSong : null, source: musicSource, musicCodec: musicCodec, musicQuality: musicQuality}
     runTask(action, options)
   }
@@ -235,7 +242,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.configuring ? configForm : root.games ? gameQuery : link
+    focusTarget: root.configuring ? configForm : root.games ? gameQuery : root.video ? videoLink : link
     contentWidth: fittedContentWidth(Style.space(620))
     contentHeight: fittedContentHeight(form.implicitHeight)
 
@@ -271,10 +278,11 @@ Panel {
           }
           Row {
             width: parent.width; spacing: Style.space(6)
-            Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.games; focusable: true; onClicked: { root.games = false; root.configuring = false } }
-            Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
-            Item { width: Math.max(0, parent.width - musicTab.width - gamesTab.width - settingsTab.width - Style.space(18)); height: 1 }
-            Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.games = false; root.configuring = true } }
+            Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.video && !root.games; focusable: true; onClicked: { root.video = false; root.games = false; root.configuring = false; root.mode = "Audio" } }
+            Button { id: videoTab; text: "Video"; selected: !root.configuring && root.video; focusable: true; onClicked: { root.video = true; root.games = false; root.configuring = false; root.searching = false; root.selectedSong = null; root.mode = "Video" } }
+            Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.video = false; root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
+            Item { width: Math.max(0, parent.width - musicTab.width - videoTab.width - gamesTab.width - settingsTab.width - Style.space(24)); height: 1 }
+            Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.video = false; root.games = false; root.configuring = true } }
           }
           Configuration {
             id: configForm
@@ -386,7 +394,7 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(12)
-            visible: !root.configuring && !root.games
+            visible: !root.configuring && !root.video && !root.games
           Flow {
             width: parent.width; spacing: Style.space(6)
             Choice { text: "Paste link"; selected: !root.searching; onClicked: root.searching = false }
@@ -462,41 +470,33 @@ Panel {
             id: link
             visible: !root.searching
             width: parent.width
-            placeholderText: "Paste a YouTube or Spotify link…"
+            placeholderText: "Paste a Spotify or YouTube link…"
             enabled: !root.workerRunning
             selectByMouse: true
           }
-          Flow {
-            visible: !root.searching && !root.spotifyLink
-            width: parent.width; spacing: Style.space(6)
-            Repeater {
-              model: ["Video", "Audio"]
-              Choice { required property string modelData; text: modelData; selected: root.mode === modelData; onClicked: root.mode = modelData }
-            }
-          }
-          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video Quality" : "Audio Quality" }
+          Label { visible: !root.searching && !root.spotifyLink; text: "Audio Quality" }
           Flow {
             width: parent.width; spacing: Style.space(6)
             Repeater {
-              model: root.searching || root.spotifyLink ? [] : root.mode === "Video" ? ["Best", "2160", "1440", "1080", "720", "480"] : ["0", "192K", "256K", "320K"]
+              model: root.searching || root.spotifyLink ? [] : ["0", "192K", "256K", "320K"]
               Choice {
                 required property string modelData
                 text: modelData === "0" ? "Best" : modelData
-                selected: modelData === (root.mode === "Video" ? root.videoQuality : root.audioQuality)
-                onClicked: { if (root.mode === "Video") root.videoQuality = modelData; else root.audioQuality = modelData }
+                selected: modelData === root.audioQuality
+                onClicked: root.audioQuality = modelData
               }
             }
           }
-          Label { visible: !root.searching && !root.spotifyLink; text: root.mode === "Video" ? "Video Format" : "Audio Format" }
+          Label { visible: !root.searching && !root.spotifyLink; text: "Audio Format" }
           Flow {
             width: parent.width; spacing: Style.space(6)
             Repeater {
-              model: root.searching || root.spotifyLink ? [] : root.mode === "Video" ? ["auto", "mkv", "mp4"] : ["best", "mp3", "m4a", "opus", "flac", "wav"]
+              model: root.searching || root.spotifyLink ? [] : ["best", "mp3", "m4a", "opus", "flac", "wav"]
               Choice {
                 required property string modelData
                 text: modelData === "best" ? "Original" : modelData.toUpperCase()
-                selected: modelData === (root.mode === "Video" ? root.videoFormat : root.audioFormat)
-                onClicked: { if (root.mode === "Video") root.videoFormat = modelData; else root.audioFormat = modelData }
+                selected: modelData === root.audioFormat
+                onClicked: root.audioFormat = modelData
               }
             }
           }
@@ -547,14 +547,71 @@ Panel {
           TextField {
             id: destination
             width: parent.width
-            placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoink/Music" : "~/Downloads/Yoink/" + root.mode
+            placeholderText: root.searching || root.musicInput ? "~/Downloads/Yoink/Music" : "~/Downloads/Yoink/Audio"
             enabled: !root.workerRunning
             selectByMouse: true
           }
           Flow {
             width: parent.width; spacing: Style.space(6)
-            Choice { text: root.searching || root.musicInput ? "Download Music" : "Download " + root.mode; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
+            Choice { text: root.searching || root.musicInput ? "Download Music" : "Download Audio"; enabled: !root.workerRunning && root.inputReady; onClicked: root.start("download") }
           }
+          }
+          Column {
+            id: videoView
+            visible: root.video && !root.configuring && !root.games
+            width: parent.width
+            spacing: Style.space(10)
+            TextField {
+              id: videoLink
+              width: parent.width
+              placeholderText: "Paste a YouTube link…"
+              enabled: !root.workerRunning
+              selectByMouse: true
+            }
+            Label {
+              visible: root.spotifyVideoLink
+              width: parent.width
+              text: "Video downloads require a YouTube link. Use Music for Spotify or audio downloads."
+              font.pixelSize: Style.font.bodySmall
+            }
+            Label { text: "Video Quality" }
+            Flow {
+              width: parent.width; spacing: Style.space(6)
+              Repeater {
+                model: ["Best", "2160", "1440", "1080", "720", "480"]
+                Choice {
+                  required property string modelData
+                  text: modelData
+                  selected: root.videoQuality === modelData
+                  onClicked: root.videoQuality = modelData
+                }
+              }
+            }
+            Label { text: "Video Format" }
+            Flow {
+              width: parent.width; spacing: Style.space(6)
+              Repeater {
+                model: ["auto", "mkv", "mp4"]
+                Choice {
+                  required property string modelData
+                  text: modelData.toUpperCase()
+                  selected: root.videoFormat === modelData
+                  onClicked: root.videoFormat = modelData
+                }
+              }
+            }
+            Label { text: "Save To" }
+            TextField {
+              id: videoDestination
+              width: parent.width
+              placeholderText: "~/Downloads/Yoink/Video"
+              enabled: !root.workerRunning
+              selectByMouse: true
+            }
+            Flow {
+              width: parent.width; spacing: Style.space(6)
+              Choice { text: "Download Video"; enabled: !root.workerRunning && root.videoInputReady; onClicked: root.start("download") }
+            }
           }
           Button {
             visible: root.workerRunning
