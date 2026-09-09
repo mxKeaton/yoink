@@ -6,9 +6,9 @@ TV shows, and books.
 ## Screenshots
 
 <p align="center">
-  <img src="screenshots/games.png" alt="Games catalogue" height="360">
-  <img src="screenshots/tv.png" alt="Movie details" height="360">
-  <img src="screenshots/books.png" alt="Books catalogue" height="360">
+  <img src="screenshots/games.png" alt="Games catalogue" height="320">
+  <img src="screenshots/tv.png" alt="Movie details" height="320">
+  <img src="screenshots/books.png" alt="Books catalogue" height="320">
 </p>
 
 ## Install
