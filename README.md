@@ -20,3 +20,11 @@ bash install.sh
 - Games catalogue with store and source links!
 - Movie and TV show catalogue with streaming source links!
 - Book and article downloads!
+
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/games.png" alt="Games catalogue" width="32%">
+  <img src="screenshots/tv.png" alt="TV catalogue" width="32%">
+  <img src="screenshots/books.png" alt="Books catalogue" width="32%">
+</p>
