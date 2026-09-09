@@ -19,5 +19,3 @@ bash install.sh
 - Movie and TV show catalogue with trending lists, combined search, and
   streaming sources.
 - Book search with an optional download source.
-
-The plugin appears on the right side of the Omarchy bar after installation.
