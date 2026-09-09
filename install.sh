@@ -10,7 +10,7 @@ stage_root=$(mktemp -d "$state_dir/.install-XXXXXX")
 stage="$stage_root/denis.yoink"
 mkdir -p "$stage"
 trap 'rm -rf -- "$stage_root"' EXIT
-for file in manifest.json Service.qml BarWidget.qml Configuration.qml backend.py download.py settings.py spotify.py music.py lookup.py games.py books.py; do
+for file in manifest.json Service.qml BarWidget.qml Configuration.qml backend.py download.py book_download.py settings.py spotify.py music.py lookup.py games.py books.py; do
   cp -- "$source_dir/$file" "$stage/$file"
 done
 if [[ -d "$target" ]]; then

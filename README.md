@@ -14,6 +14,7 @@ floating popup.
 - Keep downloads running when the popup closes and show progress on the bar icon
 - Browse trending games, search titles, and view metadata from IGDB with Steam
   catalogue fallback
+- Search the Books catalogue and optionally download from a source you provide
 
 ## Installation
 
@@ -48,6 +49,25 @@ Open Yoink and select **Configuration** to connect the services you use:
 
 Credentials are stored locally in `~/.config/yoink/settings.json` with private
 file permissions.
+
+Book downloads use a separate source that you control. Add this to
+`~/.config/yoink/settings.json` and adjust the URLs for your own site or local
+HTTP stash:
+
+```json
+"book_download_source": {
+  "base_url": "http://127.0.0.1:8080",
+  "output_dir": "~/Downloads/Yoink/Books"
+}
+```
+
+The search request uses the source's fixed `index.php?req=...` route. Search
+result links should lead to a book page. Opaque entry links such as
+`/ads.php?md5=...` are supported; the entry page should expose a download link
+such as `GET`, `Download EPUB`, or a URL ending in `.pdf`, `.epub`, `.mobi`, or
+another supported book format. You can set `detail_url` or `download_url`
+templates when your site uses predictable paths; templates can use `{query}`,
+`{title}`, `{author}`, `{id}`, `{md5}`, and `{extension}`.
 
 ## Usage
 

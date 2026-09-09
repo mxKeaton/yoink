@@ -12,6 +12,8 @@ Panel {
 
   readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
+  readonly property bool bookWorkerRunning: downloadService ? downloadService.bookRunning : false
+  readonly property bool operationRunning: root.workerRunning || root.bookWorkerRunning
 
   property bool configuring: false
   property bool video: false
@@ -27,7 +29,7 @@ Panel {
   property string bookStatus: "Search the Library Genesis catalogue."
   property string bookLanguage: "English"
   property bool bookHasNext: false
-  readonly property bool bookPageLoading: root.books && root.selectedBook === null && root.workerRunning && root.action === "book-search"
+  readonly property bool bookPageLoading: root.books && root.selectedBook === null && root.bookWorkerRunning && root.downloadService && root.downloadService.bookAction === "book-search"
   onSelectedGameChanged: if (detailCoverImage) detailCoverImage.fallbackIndex = 0
   onSelectedBookChanged: if (bookDetailCoverImage) bookDetailCoverImage.fallbackIndex = 0
   Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
@@ -58,6 +60,11 @@ Panel {
   function sourceLabel(url) {
     const name = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
     return name.replace(/[-_]+/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
+  }
+
+  function bookDownloadLabel() {
+    const extension = String(root.selectedBook && root.selectedBook.extension || "").replace(/^\./, "").toUpperCase()
+    return extension ? "Download " + extension : "Download"
   }
 
   function appendLog(line) {
@@ -112,6 +119,17 @@ Panel {
       root.bookStatus = line.slice(11) || "Book catalogue unavailable."
       return
     }
+    if (line.indexOf("BOOK_DOWNLOAD:") === 0) {
+      try {
+        const result = JSON.parse(line.slice(14))
+        root.bookStatus = result.path ? "Book downloaded to " + result.path : "Book downloaded."
+      } catch (e) { root.bookStatus = "Book downloaded." }
+      return
+    }
+    if (line.indexOf("BOOK_DOWNLOAD_ERROR:") === 0) {
+      root.bookStatus = line.slice(20) || "Book download failed."
+      return
+    }
     if (line.indexOf("OPEN:") === 0) {
       const url = line.slice(5)
       if (url.indexOf("https://accounts.spotify.com/") === 0) {
@@ -125,7 +143,7 @@ Panel {
   }
 
   function clearDownload() {
-    if (root.workerRunning) return
+    if (root.operationRunning) return
     link.text = ""
     videoLink.text = ""
     query.text = ""
@@ -177,8 +195,8 @@ Panel {
   }
 
   function bookTask(action, options) {
-    if (root.workerRunning || !root.downloadService) return
-    root.bookStatus = action === "book-search" ? "Searching books…" : "Loading book details…"
+    if (root.bookWorkerRunning || !root.downloadService) return
+    root.bookStatus = action === "book-search" ? "Searching books…" : action === "book-download" ? "Preparing book download…" : "Loading book details…"
     root.runTask(action, options)
   }
 
@@ -216,7 +234,13 @@ Panel {
   }
 
   function runTask(action, options) {
-    if (root.workerRunning || !root.downloadService) return
+    if (!root.downloadService) return
+    if (action.indexOf("book-") === 0) {
+      root.logText = ""
+      root.downloadService.runTask(action, options)
+      return
+    }
+    if (root.workerRunning) return
     root.action = action
     root.cancelling = false
     if (action !== "config-load") root.logText = ""
@@ -225,7 +249,10 @@ Panel {
   }
 
   function workerExited(code, completedAction, wasCancelled) {
-      root.cancelling = false
+      if (completedAction.indexOf("book-") === 0) {
+        if (wasCancelled) root.bookStatus = "Cancelled."
+        return
+      }
       if (completedAction === "config-load" && code === 0) return
       if (completedAction === "game-detail" && root.selectedGame) {
         root.gameSourcesLoading = true
@@ -233,7 +260,7 @@ Panel {
       }
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
-        : code !== 0 ? "Failed — see details below."
+        : code !== 0 ? (completedAction.indexOf("book-") === 0 ? root.bookStatus : "Failed — see details below.")
         : completedAction === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
       : completedAction === "download" ? "Download complete." : completedAction.indexOf("game-") === 0 ? root.gameStatus : completedAction.indexOf("book-") === 0 ? root.bookStatus : "Configuration updated."
   }
@@ -287,7 +314,7 @@ Panel {
     Text {
       id: badgeText
       anchors.centerIn: parent
-      text: root.downloadService ? root.downloadService.progressDone + "/" + root.downloadService.progressTotal : ""
+      text: root.downloadService ? root.downloadService.progressPercent + "%" : ""
       color: root.downloadService && root.downloadService.resultState === "failed" ? Color.background
         : root.downloadService && root.downloadService.resultState === "success" ? Color.background
         : root.bar ? root.bar.barForeground : Color.foreground
@@ -345,7 +372,7 @@ Panel {
               id: clearButton
               text: "Clear"
               tooltipText: "Clear the link and progress log"
-              enabled: !root.workerRunning
+              enabled: !root.operationRunning
               focusable: true
               onClicked: root.clearDownload()
             }
@@ -376,13 +403,15 @@ Panel {
               id: bookQuery
               width: parent.width
               placeholderText: "Search books by title or author…"
-              enabled: !root.workerRunning
+              // The catalogue has its own worker, so the query remains
+              // editable while a previous page is being fetched.
+              enabled: true
               selectByMouse: true
               onAccepted: root.beginBookSearch(text)
             }
               Flow {
               width: parent.width; spacing: Style.space(6)
-              Choice { text: "Search"; enabled: !root.workerRunning && bookQuery.text.trim() !== ""; onClicked: root.beginBookSearch(bookQuery.text) }
+              Choice { text: "Search"; enabled: !root.bookWorkerRunning && bookQuery.text.trim() !== ""; onClicked: root.beginBookSearch(bookQuery.text) }
             }
             Column {
               width: parent.width; spacing: Style.space(6)
@@ -395,6 +424,7 @@ Panel {
                     required property string modelData
                     text: modelData
                     selected: root.bookLanguage === modelData
+                    enabled: !root.bookWorkerRunning
                     onClicked: { root.bookLanguage = modelData; root.reloadBooks() }
                   }
                 }
@@ -412,8 +442,8 @@ Panel {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(6)
-                Choice { id: previousBookPage; width: implicitWidth; opacity: root.bookPage > 1 ? 1 : 0; text: "‹ Previous"; enabled: !root.workerRunning && root.bookPage > 1; onClicked: { root.bookPage -= 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
-                Choice { id: nextBookPage; width: implicitWidth; text: "Next ›"; visible: root.bookHasNext; enabled: !root.workerRunning && root.bookHasNext; onClicked: { root.bookPage += 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
+                Choice { id: previousBookPage; width: implicitWidth; opacity: root.bookPage > 1 ? 1 : 0; text: "‹ Previous"; enabled: !root.bookWorkerRunning && root.bookPage > 1; onClicked: { root.bookPage -= 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
+                Choice { id: nextBookPage; width: implicitWidth; text: "Next ›"; visible: root.bookHasNext; enabled: !root.bookWorkerRunning && root.bookHasNext; onClicked: { root.bookPage += 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
               }
             }
             Column {
@@ -475,7 +505,7 @@ Panel {
             Column {
               visible: root.selectedBook !== null
               width: parent.width; spacing: Style.space(8)
-              Button { text: "← Back to books"; focusable: true; onClicked: root.selectedBook = null }
+              Button { text: "← Back to books"; enabled: !root.bookWorkerRunning; focusable: true; onClicked: root.selectedBook = null }
               Image {
                 id: bookDetailCoverImage
                 property int fallbackIndex: 0
@@ -500,6 +530,11 @@ Panel {
               Flow {
                 spacing: Style.space(6)
                 Choice { text: "Open LibGen"; enabled: root.selectedBook && root.selectedBook.url !== ""; onClicked: if (root.selectedBook) Quickshell.execDetached(["omarchy-launch-browser", root.selectedBook.url]) }
+                Choice {
+                  text: root.bookDownloadLabel()
+                  enabled: !root.bookWorkerRunning && root.selectedBook && root.selectedBook.name !== ""
+                  onClicked: if (root.selectedBook) root.bookTask("book-download", {book: root.selectedBook})
+                }
               }
             }
           }
@@ -833,14 +868,24 @@ Panel {
             }
           }
           Button {
-            visible: root.workerRunning
-            text: root.downloadService && root.downloadService.cancelling ? "Stopping…" : "Cancel"
+            visible: root.operationRunning
+            text: root.downloadService && root.downloadService.cancelPending ? "Stopping…" : "Cancel"
             focusable: true
-            enabled: root.downloadService && !root.downloadService.cancelling
+            enabled: root.downloadService && !root.downloadService.cancelPending
             onClicked: if (root.downloadService) root.downloadService.cancel()
           }
-          Label { visible: !root.bookPageLoading; width: parent.width; text: root.status }
-          Label { visible: root.workerRunning; width: parent.width; text: "You can close this popup while the download continues."; font.pixelSize: Style.font.bodySmall }
+          Label {
+            visible: root.workerRunning && root.downloadService && root.downloadService.progressTotal > 0
+            width: parent.width
+            text: root.downloadService ? "Download Progress: " + root.downloadService.progressPercent + "%" : ""
+            font.pixelSize: Style.font.bodySmall
+          }
+          Label {
+            visible: !root.bookPageLoading
+            width: parent.width
+            text: root.books ? root.bookStatus : root.games ? root.gameStatus : root.status
+          }
+          Label { visible: root.operationRunning; width: parent.width; text: "You can close this popup while the operation continues."; font.pixelSize: Style.font.bodySmall }
           Flickable {
             visible: root.logText !== ""
             width: parent.width

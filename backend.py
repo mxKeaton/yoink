@@ -87,18 +87,23 @@ def main(options):
             result = games.detail(options.get('id'), options.get('source', 'steam'))
             print('GAME_DETAIL:' + json.dumps(result), flush=True)
         return 0
-    elif action in ('book-search', 'book-detail'):
-        import books
+    elif action in ('book-search', 'book-detail', 'book-download'):
         try:
             if action == 'book-search':
+                import books
                 results = books.search_page(options.get('query', ''), options.get('page', 1), options.get('language', 'English'))
                 print('BOOKS:' + json.dumps(results), flush=True)
-            else:
+            elif action == 'book-detail':
+                import books
                 result = books.detail(options.get('id'))
                 print('BOOK_DETAIL:' + json.dumps(result), flush=True)
+            else:
+                import book_download
+                result = book_download.download(options.get('book'), options)
+                print('BOOK_DOWNLOAD:' + json.dumps(result), flush=True)
             return 0
         except (ValueError, RuntimeError) as error:
-            print('BOOK_ERROR:' + str(error), flush=True)
+            print(('BOOK_DOWNLOAD_ERROR:' if action == 'book-download' else 'BOOK_ERROR:') + str(error), flush=True)
             return 1
     elif action == 'game-sources':
         import games
