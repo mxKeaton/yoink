@@ -4,7 +4,7 @@
   "name": "Yoink",
   "version": "0.4.0",
   "author": "Denis",
-  "description": "Theme-aware media downloader and game browser",
+  "description": "Theme-aware media downloader, game and book browser",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Yoink",
-    "description": "Download media and browse trending games",
+    "description": "Download media and browse games and books",
     "category": "Media",
     "defaultSection": "right",
     "allowMultiple": false

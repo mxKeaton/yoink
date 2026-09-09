@@ -16,15 +16,24 @@ Panel {
   property bool configuring: false
   property bool video: false
   property bool games: false
+  property bool books: false
   property var gameResults: []
   property var selectedGame: null
   property string gameStatus: "Browse trending games or search the catalogue."
   property var gameSources: []
   property bool gameSourcesLoading: false
+  property var bookResults: []
+  property var selectedBook: null
+  property string bookStatus: "Search the Library Genesis catalogue."
+  property string bookLanguage: "English"
+  property bool bookHasNext: false
+  readonly property bool bookPageLoading: root.books && root.selectedBook === null && root.workerRunning && root.action === "book-search"
   onSelectedGameChanged: if (detailCoverImage) detailCoverImage.fallbackIndex = 0
+  onSelectedBookChanged: if (bookDetailCoverImage) bookDetailCoverImage.fallbackIndex = 0
   Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
   property int gamePage: 1
   property bool gameBrowsingTrending: true
+  property int bookPage: 1
   property bool searching: false
   property var searchResults: []
   property var selectedSong: null
@@ -72,6 +81,37 @@ Panel {
       try { root.gameSources = JSON.parse(line.slice(13)); root.gameSourcesLoading = false; root.gameStatus = root.gameSources.length ? "Matching game websites found." : "No configured website matched this title." } catch (e) { root.gameSources = []; root.gameSourcesLoading = false }
       return
     }
+    if (line.indexOf("BOOKS:") === 0) {
+      try {
+        const payload = JSON.parse(line.slice(6))
+        root.bookResults = Array.isArray(payload) ? payload : (Array.isArray(payload.items) ? payload.items : [])
+        root.bookHasNext = Array.isArray(payload) ? root.bookResults.length >= 18 : !!payload.has_next
+        root.bookStatus = root.bookResults.length ? "Select a book to view details." : "No books found."
+      } catch (e) {
+        root.bookResults = []
+        root.bookHasNext = false
+        root.bookStatus = "Could not read book results."
+      }
+      return
+    }
+    if (line.indexOf("BOOK_DETAIL:") === 0) {
+      try {
+        const previous = root.selectedBook || {}
+        const details = JSON.parse(line.slice(12))
+        for (const field of ["cover", "language", "pages", "size", "extension", "md5"]) {
+          if (!details[field] && previous[field]) details[field] = previous[field]
+        }
+        if ((!details.coverFallbacks || details.coverFallbacks.length === 0) && previous.cover && details.cover && details.cover !== previous.cover) details.coverFallbacks = [previous.cover]
+        root.selectedBook = details
+        root.bookStatus = "Book details loaded."
+      } catch (e) { root.bookStatus = "Could not read book details." }
+      return
+    }
+    if (line.indexOf("BOOK_ERROR:") === 0) {
+      root.bookHasNext = false
+      root.bookStatus = line.slice(11) || "Book catalogue unavailable."
+      return
+    }
     if (line.indexOf("OPEN:") === 0) {
       const url = line.slice(5)
       if (url.indexOf("https://accounts.spotify.com/") === 0) {
@@ -93,8 +133,13 @@ Panel {
     selectedSong = null
     gameResults = []
     selectedGame = null
+    bookResults = []
+    selectedBook = null
     gamePage = 1
     gameBrowsingTrending = true
+    bookPage = 1
+    bookHasNext = false
+    bookLanguage = "English"
     gameSources = []
     gameSourcesLoading = false
     logText = ""
@@ -102,6 +147,8 @@ Panel {
     cancelling = false
     configuring = false
     video = false
+    games = false
+    books = false
     if (root.downloadService) root.downloadService.clearResult()
     scroll.contentY = 0
     if (searching) query.forceActiveFocus(); else link.forceActiveFocus()
@@ -129,6 +176,24 @@ Panel {
     root.runTask(action, options)
   }
 
+  function bookTask(action, options) {
+    if (root.workerRunning || !root.downloadService) return
+    root.bookStatus = action === "book-search" ? "Searching books…" : "Loading book details…"
+    root.runTask(action, options)
+  }
+
+  function reloadBooks() {
+    root.selectedBook = null
+    root.bookPage = 1
+    root.bookHasNext = false
+    if (!bookQuery.text.trim()) {
+      root.bookResults = []
+      root.bookStatus = "Enter a title or author to search."
+      return
+    }
+    root.bookTask("book-search", {query: bookQuery.text, page: 1, language: root.bookLanguage})
+  }
+
   function beginGameSearch(value) {
     const text = String(value || "").trim()
     if (!text) return
@@ -138,6 +203,16 @@ Panel {
     root.gamePage = 1
     root.gameBrowsingTrending = false
     root.gameTask("game-search", {query: text})
+  }
+
+  function beginBookSearch(value) {
+    const text = String(value || "").trim()
+    if (!text) return
+    root.selectedBook = null
+    root.bookResults = []
+    root.bookPage = 1
+    root.bookHasNext = false
+    root.bookTask("book-search", {query: text, page: 1, language: root.bookLanguage})
   }
 
   function runTask(action, options) {
@@ -160,7 +235,7 @@ Panel {
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? "Failed — see details below."
         : completedAction === "search" ? (root.searchResults.length ? "Select a song below." : "No songs found. Try adding the artist name.")
-      : completedAction === "download" ? "Download complete." : completedAction.indexOf("game-") === 0 ? root.gameStatus : "Configuration updated."
+      : completedAction === "download" ? "Download complete." : completedAction.indexOf("game-") === 0 ? root.gameStatus : completedAction.indexOf("book-") === 0 ? root.bookStatus : "Configuration updated."
   }
 
   Connections {
@@ -242,7 +317,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: root.configuring ? configForm : root.games ? gameQuery : root.video ? videoLink : link
+    focusTarget: root.configuring ? configForm : root.games ? gameQuery : root.books ? bookQuery : root.video ? videoLink : link
     contentWidth: fittedContentWidth(Style.space(620))
     contentHeight: fittedContentHeight(form.implicitHeight)
 
@@ -278,18 +353,155 @@ Panel {
           }
           Row {
             width: parent.width; spacing: Style.space(6)
-            Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.video && !root.games; focusable: true; onClicked: { root.video = false; root.games = false; root.configuring = false; root.mode = "Audio" } }
-            Button { id: videoTab; text: "Video"; selected: !root.configuring && root.video; focusable: true; onClicked: { root.video = true; root.games = false; root.configuring = false; root.searching = false; root.selectedSong = null; root.mode = "Video" } }
-            Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.video = false; root.games = true; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
-            Item { width: Math.max(0, parent.width - musicTab.width - videoTab.width - gamesTab.width - settingsTab.width - Style.space(24)); height: 1 }
-            Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.video = false; root.games = false; root.configuring = true } }
+            Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.video && !root.games && !root.books; focusable: true; onClicked: { root.video = false; root.games = false; root.books = false; root.configuring = false; root.mode = "Audio" } }
+            Button { id: videoTab; text: "Video"; selected: !root.configuring && root.video; focusable: true; onClicked: { root.video = true; root.games = false; root.books = false; root.configuring = false; root.searching = false; root.selectedSong = null; root.mode = "Video" } }
+            Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.video = false; root.games = true; root.books = false; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
+            Button { id: booksTab; text: "Books"; selected: root.books; focusable: true; onClicked: { root.video = false; root.games = false; root.books = true; root.configuring = false; root.selectedBook = null; root.bookResults = []; root.bookPage = 1; root.bookStatus = "Enter a title or author to search." } }
+            Item { width: Math.max(0, parent.width - musicTab.width - videoTab.width - gamesTab.width - booksTab.width - settingsTab.width - Style.space(30)); height: 1 }
+            Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.video = false; root.games = false; root.books = false; root.configuring = true } }
           }
           Configuration {
             id: configForm
             width: parent.width
-            visible: root.configuring && !root.games
+            visible: root.configuring && !root.games && !root.books
             busy: root.workerRunning
             onRequested: (action, payload) => root.runTask(action, payload)
+          }
+          Column {
+            id: booksView
+            visible: root.books && !root.configuring
+            width: parent.width
+            spacing: Style.space(10)
+            TextField {
+              id: bookQuery
+              width: parent.width
+              placeholderText: "Search books by title or author…"
+              enabled: !root.workerRunning
+              selectByMouse: true
+              onAccepted: root.beginBookSearch(text)
+            }
+              Flow {
+              width: parent.width; spacing: Style.space(6)
+              Choice { text: "Search"; enabled: !root.workerRunning && bookQuery.text.trim() !== ""; onClicked: root.beginBookSearch(bookQuery.text) }
+            }
+            Column {
+              width: parent.width; spacing: Style.space(6)
+              Label { text: "Language"; font.pixelSize: Style.font.body }
+              Flow {
+                width: parent.width; spacing: Style.space(6)
+                Repeater {
+                  model: ["All", "English", "German", "French", "Spanish", "Italian", "Japanese", "Chinese"]
+                  Choice {
+                    required property string modelData
+                    text: modelData
+                    selected: root.bookLanguage === modelData
+                    onClicked: { root.bookLanguage = modelData; root.reloadBooks() }
+                  }
+                }
+              }
+            }
+            Item {
+              id: bookPagination
+              visible: root.selectedBook === null
+              width: parent.width
+              height: Math.max(bookPageLabel.implicitHeight, bookLoadingLabel.implicitHeight, bookNavigation.implicitHeight)
+              Label { id: bookPageLabel; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Page " + root.bookPage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              Label { id: bookLoadingLabel; anchors.horizontalCenter: parent.horizontalCenter; anchors.verticalCenter: parent.verticalCenter; visible: root.bookPageLoading; text: "Loading..."; color: Color.accent; font.pixelSize: Style.font.body; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              Row {
+                id: bookNavigation
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+                Choice { id: previousBookPage; width: implicitWidth; opacity: root.bookPage > 1 ? 1 : 0; text: "‹ Previous"; enabled: !root.workerRunning && root.bookPage > 1; onClicked: { root.bookPage -= 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
+                Choice { id: nextBookPage; width: implicitWidth; text: "Next ›"; visible: root.bookHasNext; enabled: !root.workerRunning && root.bookHasNext; onClicked: { root.bookPage += 1; root.bookTask("book-search", {query: bookQuery.text, page: root.bookPage, language: root.bookLanguage}) } }
+              }
+            }
+            Column {
+              id: bookList
+              visible: root.selectedBook === null
+              width: parent.width
+              spacing: Style.space(6)
+              Repeater {
+                model: root.bookResults
+                Rectangle {
+                  required property var modelData
+                  width: bookList.width
+                  height: Style.space(78)
+                  color: Color.background
+                  border.color: bookMouse.containsMouse ? Color.accent : Color.foreground
+                  border.width: 1
+                  property int coverFallbackIndex: 0
+                  onModelDataChanged: coverFallbackIndex = 0
+                  Image {
+                    id: bookCoverImage
+                    anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom
+                    anchors.margins: 1
+                    width: Style.space(52)
+                    fillMode: Image.PreserveAspectFit
+                    source: modelData.cover || ""
+                    visible: status === Image.Ready
+                    asynchronous: true
+                    onStatusChanged: {
+                      if (status !== Image.Error) return
+                      const fallbacks = modelData.coverFallbacks || []
+                      if (parent.coverFallbackIndex < fallbacks.length) {
+                        source = fallbacks[parent.coverFallbackIndex]
+                        parent.coverFallbackIndex += 1
+                      }
+                    }
+                  }
+                  Label {
+                    anchors.left: bookCoverImage.left; anchors.right: bookCoverImage.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    text: "No cover"
+                    visible: bookCoverImage.status !== Image.Ready
+                    font.pixelSize: Style.font.bodySmall
+                    color: bookMouse.containsMouse ? Color.background : Color.foreground
+                  }
+                  Column {
+                    anchors.left: bookCoverImage.right; anchors.leftMargin: Style.space(10)
+                    anchors.right: parent.right; anchors.rightMargin: Style.space(10)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(2)
+                    Label { width: parent.width; text: modelData.name; font.pixelSize: Style.font.body; elide: Text.ElideRight; maximumLineCount: 1 }
+                    Label { width: parent.width; text: modelData.author + (modelData.year ? " · " + modelData.year : ""); font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; maximumLineCount: 1 }
+                    Label { width: parent.width; text: [modelData.language, modelData.extension, modelData.size].filter(function(value) { return value }).join(" · "); font.pixelSize: Style.font.bodySmall; elide: Text.ElideRight; maximumLineCount: 1 }
+                  }
+                  MouseArea { id: bookMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedBook = modelData; root.bookTask("book-detail", {id: modelData.id}) } }
+                }
+              }
+            }
+            Column {
+              visible: root.selectedBook !== null
+              width: parent.width; spacing: Style.space(8)
+              Button { text: "← Back to books"; focusable: true; onClicked: root.selectedBook = null }
+              Image {
+                id: bookDetailCoverImage
+                property int fallbackIndex: 0
+                width: parent.width; height: Style.space(270)
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                source: root.selectedBook ? (root.selectedBook.cover || "") : ""
+                visible: status === Image.Ready
+                onStatusChanged: {
+                  if (status !== Image.Error || !root.selectedBook) return
+                  const fallbacks = root.selectedBook.coverFallbacks || []
+                  if (fallbackIndex < fallbacks.length) {
+                    source = fallbacks[fallbackIndex]
+                    fallbackIndex += 1
+                  }
+                }
+              }
+              Label { visible: bookDetailCoverImage.status !== Image.Ready; text: root.selectedBook ? root.selectedBook.name : ""; width: parent.width; horizontalAlignment: Text.AlignHCenter; font.pixelSize: Style.font.bodySmall }
+              Label { text: root.selectedBook ? root.selectedBook.name : ""; font.pixelSize: Style.font.subtitle }
+              Label { text: root.selectedBook ? "By " + root.selectedBook.author : ""; width: parent.width; font.pixelSize: Style.font.bodySmall }
+              Label { text: root.selectedBook ? root.selectedBook.summary : ""; width: parent.width; font.pixelSize: Style.font.bodySmall; wrapMode: Text.Wrap }
+              Flow {
+                spacing: Style.space(6)
+                Choice { text: "Open LibGen"; enabled: root.selectedBook && root.selectedBook.url !== ""; onClicked: if (root.selectedBook) Quickshell.execDetached(["omarchy-launch-browser", root.selectedBook.url]) }
+              }
+            }
           }
           Column {
             id: gamesView
@@ -309,13 +521,20 @@ Panel {
               Choice { text: "Search"; enabled: !root.workerRunning && gameQuery.text.trim() !== ""; onClicked: root.beginGameSearch(gameQuery.text) }
               Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: { root.gamePage = 1; root.gameBrowsingTrending = true; root.gameTask("game-trending", {page: 1}) } }
             }
-            Row {
+            Item {
+              id: gamePagination
               visible: root.selectedGame === null && root.gameBrowsingTrending
-              width: parent.width; spacing: Style.space(6)
-              Choice { id: previousPage; opacity: root.gamePage > 1 ? 1 : 0; text: "‹ Previous"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage > 1; onClicked: { root.gamePage -= 1; root.gameTask("game-trending", {page: root.gamePage}) } }
-              Choice { id: nextPage; opacity: root.gamePage < 5 ? 1 : 0; text: "Next ›"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage < 5 && root.gameResults.length > 0; onClicked: { root.gamePage += 1; root.gameTask("game-trending", {page: root.gamePage}) } }
-              Item { width: Math.max(0, parent.width - previousPage.width - nextPage.width - pageLabel.width - Style.space(18)); height: 1 }
-              Label { id: pageLabel; text: "Page " + root.gamePage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              width: parent.width
+              height: Math.max(pageLabel.implicitHeight, gameNavigation.implicitHeight)
+              Label { id: pageLabel; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Page " + root.gamePage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              Row {
+                id: gameNavigation
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+                Choice { id: previousPage; width: implicitWidth; opacity: root.gamePage > 1 ? 1 : 0; text: "‹ Previous"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage > 1; onClicked: { root.gamePage -= 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+                Choice { id: nextPage; width: implicitWidth; opacity: root.gamePage < 5 ? 1 : 0; text: "Next ›"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.gamePage < 5 && root.gameResults.length > 0; onClicked: { root.gamePage += 1; root.gameTask("game-trending", {page: root.gamePage}) } }
+              }
             }
             Grid {
               visible: root.selectedGame === null
@@ -394,7 +613,7 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(12)
-            visible: !root.configuring && !root.video && !root.games
+            visible: !root.configuring && !root.video && !root.games && !root.books
           Flow {
             width: parent.width; spacing: Style.space(6)
             Choice { text: "Paste link"; selected: !root.searching; onClicked: root.searching = false }
@@ -620,7 +839,7 @@ Panel {
             enabled: root.downloadService && !root.downloadService.cancelling
             onClicked: if (root.downloadService) root.downloadService.cancel()
           }
-          Label { width: parent.width; text: root.status }
+          Label { visible: !root.bookPageLoading; width: parent.width; text: root.status }
           Label { visible: root.workerRunning; width: parent.width; text: "You can close this popup while the download continues."; font.pixelSize: Style.font.bodySmall }
           Flickable {
             visible: root.logText !== ""
