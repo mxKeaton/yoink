@@ -1,6 +1,8 @@
 """Exercise the real cold-start helper, including imports and its stdin bridge."""
+import io
 import json
 import os
+from contextlib import redirect_stdout
 from pathlib import Path
 import shutil
 import subprocess
@@ -12,6 +14,17 @@ import backend
 
 
 class BackendStartupTests(unittest.TestCase):
+    def test_game_detail_includes_configured_source_links(self):
+        result = {'id': '42', 'name': 'How To Fish'}
+        sources = [{'base': 'https://steamrip.com', 'url': 'https://steamrip.com/how-to-fish', 'valid': False}]
+        output = io.StringIO()
+        with patch('games.detail', return_value=result.copy()), \
+             patch('games.source_links', return_value=sources), \
+             redirect_stdout(output):
+            self.assertEqual(backend.main({'action': 'game-detail', 'id': '42'}), 0)
+        payload = json.loads(output.getvalue().split('GAME_DETAIL:', 1)[1])
+        self.assertEqual(payload['gameSources'], sources)
+
     def test_connect_saves_pending_fields_first(self):
         with patch.object(backend.settings, 'save_form') as save, \
              patch.object(backend, 'snapshot'), patch('spotify.connect') as connect:

@@ -7,6 +7,7 @@ Column {
   id: root
   spacing: Style.space(10)
   property bool busy: false
+  property string pluginVersion: "unknown"
   property string platform: "spotify"
   property var saved: ({})
   property var edits: ({})
@@ -47,6 +48,15 @@ Column {
         onClicked: root.platform = modelData
       }
     }
+  }
+  Text {
+    width: parent.width
+    color: Color.foreground
+    font.family: Style.font.family
+    font.pixelSize: Style.font.bodySmall
+    opacity: 0.7
+    textFormat: Text.PlainText
+    text: "Yoink version " + root.pluginVersion
   }
   Text {
     width: parent.width

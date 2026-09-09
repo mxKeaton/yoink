@@ -1,4 +1,6 @@
 import unittest
+import json
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -25,6 +27,15 @@ class _Response:
 
 
 class GameCatalogueTests(unittest.TestCase):
+    def test_plugin_version_is_visible_and_matches_manifest(self):
+        project = Path(__file__).resolve().parents[1]
+        manifest = json.loads((project / 'manifest.json').read_text())
+        bar_widget = (project / 'BarWidget.qml').read_text()
+        configuration = (project / 'Configuration.qml').read_text()
+        self.assertIn('pluginVersion: "' + manifest['version'] + '"', bar_widget)
+        self.assertIn('property string pluginVersion', configuration)
+        self.assertIn('Yoink version " + root.pluginVersion', configuration)
+
     def test_trending_uses_no_key_steam_feed(self):
         item = {'id': 42, 'name': 'Example', 'summary': 'A game'}
         with patch.object(games.settings, 'load', return_value={'igdb_client_id': 'id', 'igdb_client_secret': 'secret'}), \
@@ -77,6 +88,24 @@ class GameCatalogueTests(unittest.TestCase):
              patch.object(games, 'urlopen', side_effect=open_url):
             result = games.source_matches('Marvel Rivals')
         self.assertEqual(result, [])
+
+    def test_source_links_include_every_configured_site_when_probing_fails(self):
+        configured = [
+            'https://steamrip.com',
+            'https://ankergames.net',
+            'https://astralgames.net',
+        ]
+        with patch.object(games.settings, 'load', return_value={'game_always_checked_urls': configured}), \
+             patch.object(games, 'source_matches', return_value=[]):
+            result = games.source_links('How To Fish')
+
+        self.assertEqual([item['base'] for item in result], configured)
+        self.assertEqual([item['url'] for item in result], [
+            'https://steamrip.com/how-to-fish',
+            'https://ankergames.net/game/how-to-fish',
+            'https://astralgames.net/how-to-fish',
+        ])
+        self.assertTrue(all(item['valid'] is False for item in result))
 
 
 if __name__ == '__main__':

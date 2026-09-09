@@ -110,20 +110,24 @@ def source_matches(name):
     slug = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')
     if not slug:
         return []
-    def check(base):
+
+    def candidates(base):
         encoded_title = quote_plus(str(name).lower())
+        if 'ankergames.net' in base.lower():
+            # AnkerGames uses /game/<slug>. Its edge returns a Cloudflare
+            # challenge to the lightweight HTTP client, so a reader
+            # validation is done below when the normal request cannot be
+            # inspected.
+            return (urljoin(base + '/game/', slug),)
+        return (urljoin(base + '/', slug), urljoin(base + '/', encoded_title),
+                urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
+
+    def check(base):
         is_ankergames = 'ankergames.net' in base.lower()
-        if is_ankergames:
-            # AnkerGames uses /game/<slug>.  Its edge returns a Cloudflare
-            # challenge to the direct request, so a reader validation is done
-            # below when the normal request cannot be inspected.
-            candidates = (urljoin(base + '/game/', slug),)
-        else:
-            candidates = (urljoin(base + '/', slug), urljoin(base + '/', encoded_title),
-                          urljoin(base + '/game/', slug), urljoin(base + '/games/', slug))
-        match_url = candidates[0]
+        possible_urls = candidates(base)
+        match_url = possible_urls[0]
         valid = False
-        for url in candidates:
+        for url in possible_urls:
             try:
                 request = Request(url, headers={'User-Agent': 'Yoink/0.4'})
                 with urlopen(request, timeout=4) as response:
@@ -153,6 +157,30 @@ def source_matches(name):
     # number of game sites return a branded 404 page with HTTP 200, so the
     # per-page checks above are required before a route is considered usable.
     return [result for result in results if result['valid']]
+
+
+def source_links(name):
+    """Return one browser link for every configured game source.
+
+    Source probing is best-effort: anti-bot pages and transient network
+    failures must not hide a source the user explicitly configured. Prefer a
+    validated URL when one was found, then fall back to the site's canonical
+    slug route so the browser can use the user's normal session.
+    """
+    slug = re.sub(r'[^a-z0-9]+', '-', str(name).lower()).strip('-')
+    if not slug:
+        return []
+
+    matches = {item['base']: item for item in source_matches(name)}
+    links = []
+    for base in source_urls():
+        item = matches.get(base)
+        if item:
+            links.append(item)
+            continue
+        url = urljoin(base + '/game/', slug) if 'ankergames.net' in base.lower() else urljoin(base + '/', slug)
+        links.append({'base': base, 'url': url, 'valid': False})
+    return links
 
 
 def _json(url, data=None, headers=None):

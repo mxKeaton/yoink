@@ -9,6 +9,7 @@ Panel {
   ipcTarget: "denis.yoink"
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
+  readonly property string pluginVersion: "0.4.2"
 
   readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
@@ -32,7 +33,7 @@ Panel {
   readonly property bool bookPageLoading: root.books && root.selectedBook === null && root.bookWorkerRunning && root.downloadService && root.downloadService.bookAction === "book-search"
   onSelectedGameChanged: if (detailCoverImage) detailCoverImage.fallbackIndex = 0
   onSelectedBookChanged: if (bookDetailCoverImage) bookDetailCoverImage.fallbackIndex = 0
-  Timer { id: gameSourcesTimer; interval: 0; repeat: false; onTriggered: if (root.selectedGame) root.gameTask("game-sources", {name: root.selectedGame.name}) }
+  Timer { id: gameSourcesTimer; interval: 100; repeat: false; onTriggered: if (root.selectedGame && !root.workerRunning) root.gameTask("game-sources", {name: root.selectedGame.name}) }
   property int gamePage: 1
   property bool gameBrowsingTrending: true
   property int bookPage: 1
@@ -58,7 +59,10 @@ Panel {
   readonly property bool spotifyVideoLink: videoLink.text.indexOf("open.spotify.com") !== -1 || videoLink.text.indexOf("spotify:") === 0
 
   function sourceLabel(url) {
-    const name = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].split(".")[0]
+    const host = String(url || "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase()
+    const known = {"steamrip.com": "Steamrip", "ankergames.net": "Ankergame", "astralgames.net": "Astralgames"}
+    if (known[host]) return known[host]
+    const name = host.split(".")[0]
     return name.replace(/[-_]+/g, " ").replace(/\b\w/g, function(letter) { return letter.toUpperCase() })
   }
 
@@ -81,7 +85,18 @@ Panel {
       return
     }
     if (line.indexOf("GAME_DETAIL:") === 0) {
-      try { root.selectedGame = JSON.parse(line.slice(12)); root.gameStatus = "Game details loaded." } catch (e) { root.gameStatus = "Could not read game details." }
+      try {
+        const details = JSON.parse(line.slice(12))
+        root.selectedGame = details
+        if (Array.isArray(details.gameSources)) {
+          root.gameSources = details.gameSources
+          root.gameSourcesLoading = false
+        } else {
+          root.gameSourcesLoading = true
+          gameSourcesTimer.restart()
+        }
+        root.gameStatus = "Game details loaded."
+      } catch (e) { root.gameStatus = "Could not read game details." }
       return
     }
     if (line.indexOf("GAME_SOURCES:") === 0) {
@@ -254,10 +269,6 @@ Panel {
         return
       }
       if (completedAction === "config-load" && code === 0) return
-      if (completedAction === "game-detail" && root.selectedGame) {
-        root.gameSourcesLoading = true
-        gameSourcesTimer.restart()
-      }
       root.status = wasCancelled ? "Cancelled."
         : code === 2 ? "Some tracks could not be completed. See the report below."
         : code !== 0 ? (completedAction.indexOf("book-") === 0 ? root.bookStatus : "Failed — see details below.")
@@ -390,6 +401,7 @@ Panel {
           Configuration {
             id: configForm
             width: parent.width
+            pluginVersion: root.pluginVersion
             visible: root.configuring && !root.games && !root.books
             busy: root.workerRunning
             onRequested: (action, payload) => root.runTask(action, payload)
@@ -608,7 +620,7 @@ Panel {
                     font.pixelSize: Style.font.bodySmall
                     color: cardMouse.containsMouse ? Color.background : Color.foreground
                   }
-                  MouseArea { id: cardMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedGame = modelData; root.gameTask("game-detail", {id: modelData.id, source: modelData.source}) } }
+                  MouseArea { id: cardMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.selectedGame = modelData; root.gameSources = []; root.gameSourcesLoading = false; root.gameTask("game-detail", {id: modelData.id, source: modelData.source}) } }
                 }
               }
             }
