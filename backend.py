@@ -91,19 +91,20 @@ def main(options):
     elif action in ('movie-trending', 'movie-search', 'movie-detail', 'movie-sources'):
         import movies
         if action == 'movie-trending':
-            results = movies.trending(options.get('page', 1))
+            results = movies.trending(options.get('page', 1), options.get('type', 'movie'))
             print('MOVIES:' + json.dumps(results), flush=True)
         elif action == 'movie-search':
             results = movies.search(options.get('query', ''), options.get('page', 1))
             print('MOVIES:' + json.dumps(results), flush=True)
         elif action == 'movie-detail':
-            result = movies.detail(options.get('id'))
+            media_type = options.get('type', 'movie')
+            result = movies.detail(options.get('id'), media_type)
             # Emit the detail payload before the slower provider lookup so the
             # description appears as soon as the catalogue data is ready.
             print('MOVIE_DETAIL:' + json.dumps(result), flush=True)
-            print('MOVIE_SOURCES:' + json.dumps(movies.source_links(result.get('id'))), flush=True)
+            print('MOVIE_SOURCES:' + json.dumps(movies.source_links(result.get('id'), media_type)), flush=True)
         else:
-            print('MOVIE_SOURCES:' + json.dumps(movies.source_links(options.get('id'))), flush=True)
+            print('MOVIE_SOURCES:' + json.dumps(movies.source_links(options.get('id'), options.get('type', 'movie'))), flush=True)
         return 0
     elif action in ('book-search', 'book-detail', 'book-download'):
         try:

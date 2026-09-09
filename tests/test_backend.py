@@ -37,7 +37,7 @@ class BackendStartupTests(unittest.TestCase):
         events = []
         output = io.StringIO()
         with patch('movies.detail', side_effect=lambda *args: events.append('detail') or result), \
-             patch('movies.source_links', side_effect=lambda movie_id: events.append('sources') or sources), \
+             patch('movies.source_links', side_effect=lambda *args: events.append('sources') or sources), \
              redirect_stdout(output):
             self.assertEqual(backend.main({'action': 'movie-detail', 'id': '1204680'}), 0)
         lines = output.getvalue().splitlines()

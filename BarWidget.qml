@@ -9,7 +9,7 @@ Panel {
   ipcTarget: "denis.yoink"
   implicitWidth: icon.implicitWidth
   implicitHeight: icon.implicitHeight
-  readonly property string pluginVersion: "0.6.0"
+  readonly property string pluginVersion: "0.7.0"
 
   readonly property var downloadService: bar && bar.shell ? bar.shell.serviceFor("denis.yoink") : null
   readonly property bool workerRunning: downloadService ? downloadService.running : false
@@ -30,7 +30,7 @@ Panel {
   property bool gameDetailsLoaded: false
   property var movieResults: []
   property var selectedMovie: null
-  property string movieStatus: "Browse trending movies or search the catalogue."
+  property string movieStatus: "Browse trending movies or TV shows, or search the catalogue."
   property var movieSources: []
   property bool movieSourcesLoading: false
   property bool movieDetailsLoaded: false
@@ -47,6 +47,7 @@ Panel {
   property int gamePage: 1
   property bool gameBrowsingTrending: true
   property int moviePage: 1
+  property string movieBrowseType: "movie"
   property bool movieBrowsingTrending: true
   property int bookPage: 1
   property bool searching: false
@@ -104,7 +105,7 @@ Panel {
       return
     }
     if (line.indexOf("MOVIES:") === 0) {
-      try { root.movieResults = JSON.parse(line.slice(7)).slice(0, 12); root.movieStatus = root.movieResults.length ? "Select a movie to view details." : "No movies found." } catch (e) { root.movieStatus = "Could not read movie results." }
+      try { root.movieResults = JSON.parse(line.slice(7)).slice(0, 12); root.movieStatus = root.movieResults.length ? "Select a movie or show to view details." : "No movies or shows found." } catch (e) { root.movieStatus = "Could not read movie results." }
       return
     }
     if (line.indexOf("GAME_DETAIL:") === 0) {
@@ -137,7 +138,7 @@ Panel {
       try {
         root.selectedMovie = JSON.parse(line.slice(13))
         root.movieDetailsLoaded = true
-      } catch (e) { root.movieDetailsLoaded = false; root.movieStatus = "Could not read movie details." }
+      } catch (e) { root.movieDetailsLoaded = false; root.movieStatus = "Could not read movie or show details." }
       return
     }
     if (line.indexOf("MOVIE_SOURCES:") === 0) {
@@ -221,6 +222,7 @@ Panel {
     gameSourcesLoading = false
     gameDetailsLoaded = false
     moviePage = 1
+    movieBrowseType = "movie"
     movieBrowsingTrending = true
     movieSources = []
     movieSourcesLoading = false
@@ -264,10 +266,38 @@ Panel {
 
   function movieTask(action, options) {
     if (root.workerRunning || !root.downloadService) return
-    root.movieStatus = action === "movie-search" ? "Searching movies…"
-      : action === "movie-trending" ? "Loading movie catalogue…"
-      : "Loading movie details…"
+    const type = options && options.type === "tv" ? "tv" : root.movieBrowseType
+    root.movieStatus = action === "movie-search" ? "Searching movies and shows…"
+      : action === "movie-trending" ? (type === "tv" ? "Loading TV catalogue…" : "Loading movie catalogue…")
+      : "Loading " + (type === "tv" ? "TV show" : "movie") + " details…"
     root.runTask(action, options)
+  }
+
+  function loadMovieCatalogue(type) {
+    if (root.workerRunning) return
+    root.movieBrowseType = type === "tv" ? "tv" : "movie"
+    root.moviePage = 1
+    root.movieBrowsingTrending = true
+    root.selectedMovie = null
+    root.movieResults = []
+    root.movieSources = []
+    root.movieSourcesLoading = false
+    root.movieDetailsLoaded = false
+    root.movieTask("movie-trending", {page: 1, type: root.movieBrowseType})
+  }
+
+  function movieMetadataText(item) {
+    if (!item) return ""
+    const parts = []
+    if (item.year) parts.push(item.year)
+    if (item.mediaType === "tv") {
+      if (item.seasons) parts.push(item.seasons + (item.seasons === 1 ? " season" : " seasons"))
+      if (item.episodes) parts.push(item.episodes + (item.episodes === 1 ? " episode" : " episodes"))
+    } else if (item.runtime) {
+      parts.push(item.runtime + " min")
+    }
+    if (item.rating) parts.push("Rating " + Number(item.rating).toFixed(1) + "/10")
+    return parts.join(" · ")
   }
 
   function bookTask(action, options) {
@@ -471,7 +501,7 @@ Panel {
             Button { id: musicTab; text: "Music"; selected: !root.configuring && !root.video && !root.games && !root.movies && !root.books; focusable: true; onClicked: { root.video = false; root.games = false; root.movies = false; root.books = false; root.configuring = false; root.mode = "Audio" } }
             Button { id: videoTab; text: "Video"; selected: !root.configuring && root.video; focusable: true; onClicked: { root.video = true; root.games = false; root.movies = false; root.books = false; root.configuring = false; root.searching = false; root.selectedSong = null; root.mode = "Video" } }
             Button { id: gamesTab; text: "Games"; selected: root.games; focusable: true; onClicked: { root.video = false; root.games = true; root.movies = false; root.books = false; root.configuring = false; root.selectedGame = null; root.gameTask("game-trending", {}) } }
-            Button { id: moviesTab; text: "Movies"; selected: root.movies; focusable: true; onClicked: { root.video = false; root.games = false; root.movies = true; root.books = false; root.configuring = false; root.selectedMovie = null; root.movieTask("movie-trending", {}) } }
+            Button { id: moviesTab; text: "TV"; selected: root.movies; focusable: true; onClicked: { root.video = false; root.games = false; root.movies = true; root.books = false; root.configuring = false; root.loadMovieCatalogue("movie") } }
             Button { id: booksTab; text: "Books"; selected: root.books; focusable: true; onClicked: { root.video = false; root.games = false; root.movies = false; root.books = true; root.configuring = false; root.selectedBook = null; root.bookResults = []; root.bookPage = 1; root.bookStatus = "Enter a title or author to search." } }
             Item { width: Math.max(0, parent.width - musicTab.width - videoTab.width - gamesTab.width - moviesTab.width - booksTab.width - settingsTab.width - Style.space(36)); height: 1 }
             Button { id: settingsTab; text: "Settings"; selected: root.configuring; focusable: true; onClicked: { root.video = false; root.games = false; root.movies = false; root.books = false; root.configuring = true } }
@@ -755,7 +785,7 @@ Panel {
             TextField {
               id: movieQuery
               width: parent.width
-              placeholderText: "Search movies…"
+              placeholderText: "Search movie or show…"
               enabled: !root.workerRunning
               selectByMouse: true
               onAccepted: root.beginMovieSearch(text)
@@ -763,21 +793,29 @@ Panel {
             Flow {
               width: parent.width; spacing: Style.space(6)
               Choice { text: "Search"; enabled: !root.workerRunning && movieQuery.text.trim() !== ""; onClicked: root.beginMovieSearch(movieQuery.text) }
-              Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: { root.moviePage = 1; root.movieBrowsingTrending = true; root.movieTask("movie-trending", {page: 1}) } }
+              Choice { text: "Trending"; enabled: !root.workerRunning; onClicked: root.loadMovieCatalogue(root.movieBrowseType) }
             }
             Item {
               id: moviePagination
               visible: root.selectedMovie === null && root.movieBrowsingTrending
               width: parent.width
-              height: Math.max(moviePageLabel.implicitHeight, movieNavigation.implicitHeight)
-              Label { id: moviePageLabel; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Page " + root.moviePage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              height: Math.max(moviePageInfo.implicitHeight, movieNavigation.implicitHeight)
+              Row {
+                id: moviePageInfo
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: Style.space(6)
+                Choice { text: "Movies"; selected: root.movieBrowseType === "movie"; enabled: !root.workerRunning; onClicked: root.loadMovieCatalogue("movie") }
+                Choice { text: "TV Shows"; selected: root.movieBrowseType === "tv"; enabled: !root.workerRunning; onClicked: root.loadMovieCatalogue("tv") }
+                Label { id: moviePageLabel; anchors.verticalCenter: parent.verticalCenter; text: "Page " + root.moviePage; leftPadding: Style.spacing.controlPaddingX; rightPadding: Style.spacing.controlPaddingX; topPadding: Style.spacing.controlPaddingY; bottomPadding: Style.spacing.controlPaddingY }
+              }
               Row {
                 id: movieNavigation
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(6)
-                Choice { width: implicitWidth; opacity: root.moviePage > 1 ? 1 : 0; text: "‹ Previous"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.moviePage > 1; onClicked: { root.moviePage -= 1; root.movieTask("movie-trending", {page: root.moviePage}) } }
-                Choice { width: implicitWidth; opacity: root.moviePage < 20 ? 1 : 0; text: "Next ›"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.moviePage < 20 && root.movieResults.length > 0; onClicked: { root.moviePage += 1; root.movieTask("movie-trending", {page: root.moviePage}) } }
+                Choice { width: implicitWidth; opacity: root.moviePage > 1 ? 1 : 0; text: "‹ Previous"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.moviePage > 1; onClicked: { root.moviePage -= 1; root.movieTask("movie-trending", {page: root.moviePage, type: root.movieBrowseType}) } }
+                Choice { width: implicitWidth; opacity: root.moviePage < 20 ? 1 : 0; text: "Next ›"; color: hot ? Style.hoverFillFor(foreground, accent) : "transparent"; enabled: !root.workerRunning && root.moviePage < 20 && root.movieResults.length > 0; onClicked: { root.moviePage += 1; root.movieTask("movie-trending", {page: root.moviePage, type: root.movieBrowseType}) } }
               }
             }
             Grid {
@@ -829,7 +867,7 @@ Panel {
                       root.movieSources = []
                       root.movieSourcesLoading = true
                       root.movieDetailsLoaded = false
-                      root.movieTask("movie-detail", {id: modelData.id})
+                      root.movieTask("movie-detail", {id: modelData.id, type: modelData.mediaType || root.movieBrowseType})
                     }
                   }
                 }
@@ -839,7 +877,7 @@ Panel {
               visible: root.selectedMovie !== null
               width: parent.width
               spacing: Style.space(8)
-              Button { text: "← Back to movies"; focusable: true; onClicked: { root.selectedMovie = null; root.movieDetailsLoaded = false; root.movieSources = []; root.movieSourcesLoading = false } }
+              Button { text: "← Back to catalogue"; focusable: true; onClicked: { root.selectedMovie = null; root.movieDetailsLoaded = false; root.movieSources = []; root.movieSourcesLoading = false } }
               Image {
                 id: movieDetailCoverImage
                 property int fallbackIndex: 0
@@ -868,7 +906,7 @@ Panel {
                 wrapMode: Text.Wrap
               }
               Label {
-                text: root.selectedMovie ? ([root.selectedMovie.year, root.selectedMovie.runtime ? root.selectedMovie.runtime + " min" : "", root.selectedMovie.rating ? "Rating " + Number(root.selectedMovie.rating).toFixed(1) + "/10" : ""].filter(function(value) { return value }).join(" · ")) : ""
+                text: root.movieMetadataText(root.selectedMovie)
                 font.pixelSize: Style.font.bodySmall
               }
               Label {

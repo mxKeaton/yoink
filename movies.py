@@ -1,4 +1,4 @@
-"""Rive movie catalogue and source lookup."""
+"""Rive movie and TV catalogue with source lookup."""
 import base64
 import json
 import socket
@@ -15,10 +15,16 @@ PROVIDER_URL = "https://scrapper.rivestream.app/api/provider"
 WATCH_URL = "https://www.rivestream.app/watch"
 IMAGE_BASE = "https://image.tmdb.org/t/p/"
 MOVIE_SITE_ROUTES = (
-    ("Rive", lambda movie_id: WATCH_URL + "?" + urlencode({"type": "movie", "id": str(movie_id)})),
-    ("7Movies", lambda movie_id: "https://7movies.in/?" + urlencode({"open": "movie-" + str(movie_id), "watch": "1"})),
-    ("Movy", lambda movie_id: "https://www.movy.sx/movie/" + str(movie_id) + "/watch"),
-    ("bCine", lambda movie_id: "https://bcine.ru/movie/" + str(movie_id)),
+    ("Rive", lambda media_id: WATCH_URL + "?" + urlencode({"type": "movie", "id": str(media_id)})),
+    ("7Movies", lambda media_id: "https://7movies.in/?" + urlencode({"open": "movie-" + str(media_id), "watch": "1"})),
+    ("Movy", lambda media_id: "https://www.movy.sx/movie/" + str(media_id) + "/watch"),
+    ("bCine", lambda media_id: "https://bcine.ru/movie/" + str(media_id)),
+)
+TV_SITE_ROUTES = (
+    ("Rive", lambda media_id: WATCH_URL + "?" + urlencode({"type": "tv", "id": str(media_id)})),
+    ("7Movies", lambda media_id: "https://7movies.in/?" + urlencode({"open": "tv-" + str(media_id), "watch": "1"})),
+    ("Movy", lambda media_id: "https://www.movy.sx/tv/" + str(media_id) + "/watch"),
+    ("bCine", lambda media_id: "https://bcine.ru/tv/" + str(media_id)),
 )
 DEFAULT_PROVIDERS = (
     "apex", "pulse", "solstice", "quasar", "horizon", "primevids",
@@ -156,9 +162,12 @@ def _image(path, size):
     return IMAGE_BASE + size + path if path else ""
 
 
-def _movie(item):
-    title = item.get("title") or item.get("name") or "Untitled movie"
-    release_date = item.get("release_date") or ""
+def _media(item, media_type=None):
+    media_type = media_type or item.get("media_type")
+    if media_type not in ("movie", "tv"):
+        media_type = "tv" if item.get("first_air_date") and not item.get("release_date") else "movie"
+    title = item.get("title") or item.get("name") or ("Untitled TV show" if media_type == "tv" else "Untitled movie")
+    release_date = item.get("release_date") or item.get("first_air_date") or ""
     return {
         "id": str(item.get("id", "")),
         "name": title,
@@ -167,32 +176,50 @@ def _movie(item):
         "rating": item.get("vote_average") or 0,
         "gridCover": _image(item.get("poster_path"), "w342"),
         "gridFallbacks": [_image(item.get("poster_path"), "w500")],
+        "mediaType": media_type,
         "source": "rive",
     }
 
 
-def _results(payload):
-    return [_movie(item) for item in payload.get("results", []) if item.get("id")]
+def _movie(item):
+    """Keep the old helper available for callers that only handle movies."""
+    return _media(item, "movie")
 
 
-def trending(page=1):
-    return _results(_backend("trendingMovie", page=page))
+def _results(payload, media_type=None):
+    if not isinstance(payload, dict):
+        return []
+    return [
+        _media(item, media_type)
+        for item in payload.get("results", [])
+        if isinstance(item, dict) and item.get("id") and (media_type or item.get("media_type") in ("movie", "tv"))
+    ]
+
+
+def trending(page=1, media_type="movie"):
+    media_type = "tv" if media_type == "tv" else "movie"
+    request_id = "trendingTv" if media_type == "tv" else "trendingMovie"
+    return _results(_backend(request_id, page=page), media_type)
 
 
 def search(query, page=1):
     query = str(query or "").strip()
     if not query:
-        raise ValueError("Enter a movie title to search.")
-    return _results(_backend("searchMovie", page=page, query=query))
+        raise ValueError("Enter a movie or show title to search.")
+    return _results(_backend("searchMulti", page=page, query=query))
 
 
-def detail(movie_id):
-    if movie_id in (None, ""):
-        raise ValueError("A movie ID is required.")
-    payload = _backend("movieData", movie_id=movie_id)
-    result = _movie(payload)
+def detail(media_id, media_type="movie"):
+    if media_id in (None, ""):
+        raise ValueError("A movie or TV show ID is required.")
+    media_type = "tv" if media_type == "tv" else "movie"
+    request_id = "tvData" if media_type == "tv" else "movieData"
+    payload = _backend(request_id, movie_id=media_id)
+    result = _media(payload, media_type)
     result["genres"] = [genre.get("name") for genre in payload.get("genres", []) if genre.get("name")]
-    result["runtime"] = payload.get("runtime") or 0
+    result["runtime"] = (payload.get("episode_run_time") or [0])[0] if media_type == "tv" else payload.get("runtime") or 0
+    result["seasons"] = payload.get("number_of_seasons") or 0
+    result["episodes"] = payload.get("number_of_episodes") or 0
     result["tagline"] = payload.get("tagline") or ""
     result["homepage"] = payload.get("homepage") or ""
     return result
@@ -208,9 +235,9 @@ def _provider_names():
         return list(DEFAULT_PROVIDERS)
 
 
-def _provider_sources(provider, movie_id):
+def _provider_sources(provider, media_id):
     try:
-        payload = _json(PROVIDER_URL + "?" + urlencode({"provider": provider, "id": movie_id}), timeout=7)
+        payload = _json(PROVIDER_URL + "?" + urlencode({"provider": provider, "id": media_id}), timeout=7)
     except Exception:
         return []
     data = payload.get("data") if isinstance(payload, dict) else None
@@ -249,20 +276,22 @@ def _page_available(url):
         return False
 
 
-def source_links(movie_id):
-    if movie_id in (None, ""):
-        raise ValueError("A movie ID is required.")
+def source_links(media_id, media_type="movie"):
+    if media_id in (None, ""):
+        raise ValueError("A movie or TV show ID is required.")
+    media_type = "tv" if media_type == "tv" else "movie"
     found = []
     providers = _provider_names()
     with ThreadPoolExecutor(max_workers=6) as pool:
-        jobs = {pool.submit(_provider_sources, provider, movie_id): provider for provider in providers}
+        jobs = {pool.submit(_provider_sources, provider, media_id): provider for provider in providers}
         responses = {}
         for job in as_completed(jobs):
             responses[jobs[job]] = job.result()
     for provider in providers:
         found.extend(responses.get(provider, []))
 
-    candidates = [{"label": label, "watchUrl": route(movie_id)} for label, route in MOVIE_SITE_ROUTES]
+    routes = TV_SITE_ROUTES if media_type == "tv" else MOVIE_SITE_ROUTES
+    candidates = [{"label": label, "watchUrl": route(media_id)} for label, route in routes]
     with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
         checks = list(pool.map(lambda item: _page_available(item["watchUrl"]), candidates))
 

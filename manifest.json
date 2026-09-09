@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "denis.yoink",
   "name": "Yoink",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "author": "Denis",
-  "description": "Theme-aware media downloader, game, movie and book browser",
+  "description": "Theme-aware media downloader, game, movie, TV and book browser",
   "kinds": [
     "service",
     "bar-widget"
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Yoink",
-    "description": "Download media and browse games, movies and books",
+    "description": "Download media and browse games, movies, TV and books",
     "category": "Media",
     "defaultSection": "right",
     "allowMultiple": false
