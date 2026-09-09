@@ -109,10 +109,22 @@ class BookDownloadTests(unittest.TestCase):
             self.assertEqual(saved.read_bytes(), b'book contents')
             self.assertEqual(saved.suffix, '.epub')
 
-    def test_download_source_is_required(self):
+    def test_download_source_defaults_without_settings(self):
         with patch.object(book_download.settings, 'load', return_value={}):
-            with self.assertRaises(ValueError):
-                book_download.download({'name': 'Example'})
+            self.assertEqual(book_download._source_config(), {'base_url': 'https://libgen.li'})
+
+    def test_book_download_uses_settings_directory(self):
+        config = {
+            'book_download_source': {'base_url': 'http://stash.test'},
+        }
+        selected = {'id': '123', 'name': 'Clean Code', 'author': 'Robert Martin', 'extension': 'epub'}
+        with tempfile.TemporaryDirectory() as directory:
+            output = str(Path(directory) / 'configured-books')
+            config['book_download_path'] = output
+            with patch.object(book_download.settings, 'load', return_value=config), \
+                 patch.object(book_download, '_SourceClient', _Client):
+                result = book_download.download(selected, {'output': ''})
+            self.assertEqual(Path(result['path']).parent, Path(output))
 
     def test_reference_index_ads_get_shape(self):
         config = {

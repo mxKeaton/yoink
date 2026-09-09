@@ -43,6 +43,15 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.load()['spotify_token'], {})
 
     def test_download_paths_are_saved_and_resolved(self):
+        defaults = {
+            'audio': Path.home() / 'Downloads' / 'Yoink' / 'Audio',
+            'music': Path.home() / 'Downloads' / 'Yoink' / 'Music',
+            'video': Path.home() / 'Downloads' / 'Yoink' / 'Video',
+            'books': Path.home() / 'Downloads' / 'Yoink' / 'Books',
+        }
+        for kind, path in defaults.items():
+            self.assertEqual(settings.download_path(kind, {}), str(path))
+
         paths = {
             'audio_download_path': str(Path(self.temp.name) / 'Audio'),
             'music_download_path': str(Path(self.temp.name) / 'Music'),

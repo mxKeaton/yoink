@@ -33,6 +33,7 @@ DEFAULT_GAME_SOURCE_URLS = (
     'https://ankergames.net',
     'https://astralgames.net',
 )
+DEFAULT_BOOK_SOURCE_URL = 'https://libgen.li'
 
 
 def qobuz_auth_mode(data):

@@ -1,11 +1,11 @@
-"""Download a selected book from a user-configured source.
+"""Download a selected book from the default or user-configured source.
 
 The catalogue used by the Books tab and the download source are deliberately
-separate.  The source is read from ``book_download_source`` (or the shorter
-``book_source_url`` alias) in the user's settings.json.  It may be a URL or an
-object with ``base_url``, ``detail_url`` and ``output_dir``.  The search route
-is fixed to the compact index.php query shape used by the supported source
-format, so it is not another setting users need to maintain.
+separate.  Downloads use LibGen by default and accept ``book_download_source``
+(or the shorter ``book_source_url`` alias) in the user's settings.json as an
+optional override.  The search route is fixed to the compact index.php query
+shape used by the supported source format, so it is not another setting users
+need to maintain.
 
 The implementation follows the small, dependency-free flow used by the
 reference script: search an HTML page, follow the best matching entry, find a
@@ -32,9 +32,6 @@ DOWNLOAD_EXTENSIONS = {
     '.azw', '.azw3', '.cb7', '.cbr', '.cbz', '.djvu', '.epub', '.fb2',
     '.mobi', '.pdf', '.rtf', '.txt', '.zip',
 }
-_DEFAULT_OUTPUT = Path.home() / 'Downloads' / 'Yoink' / 'Books'
-
-
 def _clean(value):
     return re.sub(r'\s+', ' ', html.unescape(str(value or ''))).strip()
 
@@ -79,12 +76,12 @@ def _source_config():
     if isinstance(raw, str):
         raw = raw.strip()
         if not raw:
-            raise ValueError('Set book_download_source in ~/.config/yoink/settings.json first.')
+            raw = settings.DEFAULT_BOOK_SOURCE_URL
         config = {'base_url': raw}
     elif isinstance(raw, dict):
         config = dict(raw)
     else:
-        raise ValueError('Set book_download_source in ~/.config/yoink/settings.json first.')
+        config = {'base_url': settings.DEFAULT_BOOK_SOURCE_URL}
 
     base = str(config.get('base_url') or config.get('url') or '').strip()
     # Accept a previously documented full search URL as a source address too.
@@ -430,8 +427,7 @@ def download(book, options=None):
 
     explicit_download = config.get('download_url') or config.get('file_url')
     saved_settings = settings.load()
-    output_value = ((options or {}).get('output') or saved_settings.get('book_download_path')
-                    or config.get('output_dir') or str(_DEFAULT_OUTPUT))
+    output_value = (options or {}).get('output') or settings.download_path('books', saved_settings)
     output_dir = Path(str(output_value)).expanduser().absolute()
     errors = []
     try:

@@ -175,7 +175,7 @@ Column {
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall
       wrapMode: Text.Wrap
-      text: "Set the default folder for each download type. A path entered in the download form takes priority."
+      text: "Set the default folder for each download type."
     }
     Repeater {
       model: root.downloadDefinitions
